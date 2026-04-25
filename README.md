@@ -228,8 +228,8 @@ log-score are computed on genuinely held-out observations. See
 ## Installation
 
 ```r
-# inlaops is not yet on CRAN — install from source
-devtools::install_local("path/to/inlaops")
+# inlaops is not yet on CRAN — install from GitHub
+remotes::install_github("novica/inlaops")
 
 # Core dependencies (all on CRAN)
 install.packages(c("inlabru", "tibble", "dplyr", "generics", "rlang"))
