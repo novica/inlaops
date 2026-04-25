@@ -1,0 +1,47 @@
+Package: inlaops
+Title: MLOps and tidymodels Bridge for inlabru Models
+Version: 0.1.0
+Authors@R: c(
+    person("Novica", "Nakov", , "novica.nakov@vetinst.no", role = c("aut", "cre"),
+           comment = c(ORCID = "0009-0005-7773-7718")),
+    person("Norwegian Veterinary Institute", role = c("cph", "fnd"))
+  )
+Description: Provides vetiver and tidymodels integration for Bayesian spatial
+    and latent Gaussian models fit with inlabru. Includes a vetiver bridge
+    (versioning, REST API serving, Docker packaging) for 'bru' objects, broom
+    tidiers, a parsnip model constructor scoped to fixed-effects models, and
+    proper scoring rule helpers via inlabru::generate().
+License: Apache License (>= 2)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    dplyr,
+    generics,
+    inlabru (>= 2.12.0),
+    rlang,
+    tibble
+Suggests:
+    broom,
+    fmesher,
+    ggplot2,
+    httr2,
+    INLA,
+    jsonlite,
+    knitr,
+    parsnip,
+    pins,
+    plumber,
+    purrr,
+    recipes,
+    rsample,
+    scoringRules,
+    sf,
+    testthat (>= 3.0.0),
+    vetiver,
+    yardstick,
+    quarto
+Enhances:
+    sp
+VignetteBuilder: quarto
+Config/testthat/edition: 3

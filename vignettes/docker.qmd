@@ -1,0 +1,183 @@
+---
+title: "Deploying inlabru models with Docker"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Deploying inlabru models with Docker}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+Once a model is pinned to a board (see `vignette("vetiver")`), vetiver can
+generate the artefacts needed to run the `/predict` endpoint in a Docker
+container. This vignette covers generating those artefacts, the INLA-specific
+install step that requires manual verification, and testing the container
+before production deployment.
+
+## Prerequisites
+
+```{r}
+library(vetiver)
+library(pins)
+
+board <- board_temp("./model-store")
+```
+
+## 1. Generate Docker artefacts
+
+```{r}
+vetiver_prepare_docker(board, "gaussian_glm")
+```
+
+This writes three files into the working directory:
+
+| File | Purpose |
+|---|---|
+| `Dockerfile` | Container definition |
+| `plumber.R` | API endpoint wiring |
+| `vetiver_renv.lock` | Reproducible R package library |
+
+## 2. Verify the INLA install line
+
+INLA is not on CRAN, so the generated `Dockerfile` must install it from its
+own repository. Open the generated `Dockerfile` and check that the INLA install
+line is present and current:
+
+```dockerfile
+RUN Rscript -e "install.packages('INLA', \
+  repos = c(INLA = 'https://inla.r-inla-download.org/R/stable'), \
+  dep = TRUE)"
+```
+
+This line is not added by vetiver automatically — you need to add it manually
+if it is absent. Place it after the base R install and before the
+`renv::restore()` call. The correct repository URL may change; check
+[https://www.r-inla.org/download-install](https://www.r-inla.org/download-install)
+before deploying to a new environment.
+
+A minimal working `Dockerfile` structure looks like this:
+
+```dockerfile
+FROM rocker/r-ver:4.4.0
+
+# System dependencies for INLA and inlabru
+RUN apt-get update && apt-get install -y \
+    libgdal-dev libgeos-dev libproj-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install INLA from its own repository
+RUN Rscript -e "install.packages('INLA', \
+  repos = c(INLA = 'https://inla.r-inla-download.org/R/stable'), \
+  dep = TRUE)"
+
+# Restore the package library from the vetiver lock file
+COPY vetiver_renv.lock renv.lock
+RUN Rscript -e "renv::restore()"
+
+COPY plumber.R plumber.R
+EXPOSE 8000
+ENTRYPOINT ["R", "-e", "pr <- plumber::plumb('plumber.R'); pr$run(host='0.0.0.0', port=8000)"]
+```
+
+## 3. Build and test locally
+
+```bash
+docker build -t gaussian_glm .
+docker run --rm -p 8000:8000 gaussian_glm
+```
+
+Send a test request:
+
+```{r}
+library(httr2)
+
+resp <- request("http://localhost:8000/predict") |>
+  req_body_raw(
+    jsonlite::toJSON(
+      data.frame(x1 = c(0.5, -1.2), x2 = c(1.0, 0.3)),
+      dataframe = "rows"
+    ),
+    type = "application/json"
+  ) |>
+  req_perform()
+
+resp_body_json(resp)
+```
+
+Verify that the response matches what you observed from `pr_run()` during
+local development (see `vignette("vetiver")`). Shape and column names should
+be identical; values will differ due to Monte Carlo sampling.
+
+## 4. Spatial models
+
+Most R-INLA models in production are spatial (SPDE meshes, BYM2 areal
+fields, sf/sp point data). Two changes are needed for the Docker build:
+
+### Use `rocker/geospatial` as the base image
+
+`sf` requires GDAL, PROJ, and GEOS at runtime. Building these from
+`rocker/r-ver` works but adds 5–10 minutes per cold build and a fragile
+list of `apt-get` packages. The `rocker/geospatial` image has the geo
+stack pre-built; pin it instead:
+
+```dockerfile
+FROM rocker/geospatial:4.4.0
+
+# INLA from its own repository (still required — geospatial does not include it)
+RUN Rscript -e "install.packages('INLA', \
+  repos = c(INLA = 'https://inla.r-inla-download.org/R/stable'), \
+  dep = TRUE)"
+
+COPY vetiver_renv.lock renv.lock
+RUN Rscript -e "renv::restore()"
+
+COPY plumber.R plumber.R
+EXPOSE 8000
+ENTRYPOINT ["R", "-e", "pr <- plumber::plumb('plumber.R'); pr$run(host='0.0.0.0', port=8000)"]
+```
+
+`vetiver_prepare_docker()` writes a generic `rocker/r-ver`-based
+`Dockerfile`. For spatial fits you must replace the base image manually
+or use the `Dockerfile` above as a template — `vetiver_prepare_docker()`
+does not detect the spatial dependency.
+
+### Pin metadata for spatial fits
+
+Spatial fits also require `coord_names` and `crs` in `metadata$user` so
+the handler can reconstruct the spatial object from the JSON request body:
+
+```r
+v$metadata$user <- list(
+  pred_formula = "~ exp(Intercept + field)",
+  n_samples    = 200L,
+  coord_names  = c("X", "Y"),   # must match the ptype's coord column names
+  crs          = 32632          # EPSG integer or WKT string
+)
+```
+
+For sf fits, the ptype uses `colnames(sf::st_coordinates(fit_data))` —
+typically `X` and `Y`. For sp fits, it uses whatever names
+`sp::coordinates(fit_data)` returns. Request bodies must use those names.
+See `vignette("spatial")` for the full request contract.
+
+### What is not yet supported in Docker
+
+* Polygon / areal fits (`sf` polygons, `SpatialPolygonsDataFrame`) are
+  rejected at pin time. Areal serving via ID lookup against a separately
+  pinned polygon set is planned but not yet implemented. The
+  custom-plumber pattern in `vignette("lgcp")` (section 3) is the
+  workaround until then.
+
+## 5. Notes on image size
+
+INLA is a large package (~500 MB installed). Build times are long on the first
+build; subsequent builds with an unchanged lock file will use the Docker layer
+cache. Use a pinned `rocker/r-ver` tag (not `latest`) to keep builds
+reproducible.

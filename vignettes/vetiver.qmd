@@ -1,0 +1,271 @@
+---
+title: "Versioning and serving inlabru models with vetiver"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Versioning and serving inlabru models with vetiver}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+inlaops registers six S3 methods against the `"bru"` class so that `vetiver_model()` works with inlabru fits out of the box — the same way it works with `lm()` or `mgcv::gam()`. This vignette walks through the full workflow: fitting, pinning, serving, and monitoring.
+
+## Prerequisites
+
+```{r}
+library(inlabru)
+library(vetiver)
+library(pins)
+library(plumber)
+library(inlaops)
+```
+
+## 1. Fit a model
+
+Always set `config = TRUE` so that the fit stores the posterior configurations needed for sampling at the `/predict` endpoint.
+
+```{r}
+set.seed(42)
+n   <- 200
+dat <- data.frame(
+  x1 = rnorm(n),
+  x2 = rnorm(n)
+)
+dat$y <- 2 + 0.8 * dat$x1 - 0.4 * dat$x2 + rnorm(n, sd = 0.5)
+
+fit <- bru(
+  y ~ Intercept(1) + x1 + x2,
+  family  = "gaussian",
+  data    = dat,
+  options = bru_options(
+    control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)
+  )
+)
+```
+
+## 2. Wrap with vetiver
+
+`vetiver_model()` dispatches on the `"bru"` class. inlaops provides the
+description, metadata, and input prototype automatically.
+
+```{r}
+v <- vetiver_model(fit, "gaussian_glm")
+v
+#> ── gaussian_glm ─ <bru> model for deployment
+#> An inlabru model (gaussian family)
+```
+
+## 3. Store the prediction formula and model metrics as pin metadata
+
+The prediction formula must be stored as a **character string** — R expressions
+do not survive the YAML metadata round-trip. The handler parses it back with
+`parse(text = ...)` at request time.
+
+```{r}
+v$metadata$user <- list(
+  pred_formula = "~ Intercept + x1 + x2",
+  n_samples    = 1000L,                  # default is 200; raise per pin if needed
+  waic         = fit$waic$waic,
+  dic          = fit$dic$dic
+)
+```
+
+### Aside — parsnip-fitted models
+
+If you fit via `parsnip::fit()` instead of `inlabru::bru()` directly, pass
+the inner bru fit to `vetiver_model()`. This snippet is a stand-alone
+alternative — the rest of the vignette continues with the bru-fitted `v`
+from section 2:
+
+```{r}
+fit_p <- bru_reg(family = "gaussian") |>
+  parsnip::set_engine("inlabru") |>
+  parsnip::fit(y ~ Intercept(1) + x1 + x2, data = dat)
+
+# Use a different name so this branch does not shadow the `v` we are about
+# to pin and serve in section 4.
+v_parsnip <- vetiver_model(fit_p$fit, "gaussian_glm")  # note: fit_p$fit
+v_parsnip$metadata$user <- list(
+  pred_formula = "~ Intercept + x1 + x2",
+  n_samples    = 200L
+)
+```
+
+The bridge does not auto-unwrap parsnip's `model_fit`. The unwrap is one
+extra symbol; replicating all six S3 generics on the parsnip class would
+be a lot of code for that.
+
+## 4. Pin to a versioned board
+
+```{r}
+board <- board_temp()   # swap for board_s3(), board_connect(), etc.
+vetiver_pin_write(board, v)
+
+pin_versions(board, "gaussian_glm")
+```
+
+## 5. Test the endpoint locally
+
+```{r}
+pr() |>
+  vetiver_api(v) |>
+  pr_run(port = 8088)
+```
+
+In another R session (or with `httr2`):
+
+```{r}
+library(httr2)
+
+new_obs <- data.frame(x1 = c(0.5, -1.2), x2 = c(1.0, 0.3))
+
+resp <- request("http://127.0.0.1:8088/predict") |>
+  req_body_raw(
+    jsonlite::toJSON(new_obs, dataframe = "rows"),
+    type = "application/json"
+  ) |>
+  req_perform()
+
+resp_body_json(resp)
+#> # A tibble: 2 × 4
+#>   .pred .pred_low .pred_high .pred_sd
+#>   <dbl>     <dbl>      <dbl>    <dbl>
+#> 1  2.36      1.97       2.74    0.196
+#> 2  1.08      0.70       1.46    0.193
+```
+
+The handler returns `.pred` (posterior mean), `.pred_low`/`.pred_high`
+(2.5th/97.5th quantiles), and `.pred_sd` (posterior standard deviation).
+This is a richer response than a point-estimate endpoint — downstream
+consumers can propagate predictive uncertainty.
+
+For packaging the model into a Docker container for production deployment, see
+`vignette("docker")`.
+
+### Verify the formula round-trip
+
+The most likely point of failure is the formula serialisation. Confirm
+explicitly that a character formula round-trips correctly before
+deployment. We call `inlabru::generate()` directly here (rather than
+`predict()`) to bypass any S3 dispatch surprises if you also have parsnip
+loaded — `generate()` resolves unambiguously to inlabru's posterior
+sampler regardless of search-path order:
+
+```{r}
+stopifnot(inherits(fit, "bru"))   # sanity check the right object
+
+pred_str  <- "~ Intercept + x1 + x2"
+pred_expr <- eval(parse(text = pred_str))
+
+s1 <- inlabru::generate(fit, newdata = new_obs,
+                        formula = ~ Intercept + x1 + x2, n.samples = 200)
+s2 <- inlabru::generate(fit, newdata = new_obs,
+                        formula = pred_expr, n.samples = 200)
+
+# INLA uses its own internal RNG so s1 and s2 are independent draws from
+# the same posterior — exact equality is neither expected nor meaningful.
+# The check here is only that the parsed formula ran without error and
+# returned the same shape of output.
+stopifnot(identical(dim(s1), dim(s2)))
+```
+
+## 6. Track model quality across versions
+
+INLA-specific fit metrics (WAIC, DIC) cannot be recomputed from a live
+endpoint — they are only available at training time. Store them as pin metadata
+and read them back per version for longitudinal monitoring:
+
+```{r}
+library(purrr)
+
+versions <- pin_versions(board, "gaussian_glm")
+
+map_dfr(versions$version, function(ver) {
+  meta <- pin_meta(board, "gaussian_glm", version = ver)
+  tibble::tibble(
+    version = ver,
+    waic    = meta$user$waic,
+    dic     = meta$user$dic
+  )
+})
+```
+
+Standard prediction-drift monitoring uses `vetiver_compute_metrics()` against
+the `.pred` column, the same as any other vetiver model. Drift monitoring
+is time-windowed, so the input data needs a timestamp column. In a real
+deployment this comes from the time you collected each observation — for
+the vignette we synthesise one:
+
+```{r}
+monitoring_data <- dat  # in production: a holdout set collected since last deployment
+monitoring_data$.pred <- inlabru::generate(
+  fit, newdata = monitoring_data,
+  formula = ~ Intercept + x1 + x2, n.samples = 500
+) |> rowMeans()
+
+# Synthetic timestamps for the example. Replace with real collection times.
+monitoring_data$obs_date <- seq.Date(
+  from       = as.Date("2026-01-01"),
+  by         = "day",
+  length.out = nrow(monitoring_data)
+)
+
+metrics_board <- board_temp()
+
+new_metrics <- vetiver_compute_metrics(
+  monitoring_data,
+  date_var = obs_date,
+  period   = "week",
+  truth    = "y",
+  estimate = ".pred"
+)
+
+# vetiver_pin_metrics() appends to an existing metrics pin — the first time
+# you record metrics, write the pin directly with pins::pin_write(). On
+# subsequent runs (e.g. weekly cron jobs), use vetiver_pin_metrics() so each
+# new window's rows are appended without overwriting history.
+if ("gaussian_glm_metrics" %in% pins::pin_list(metrics_board)) {
+  vetiver_pin_metrics(metrics_board, new_metrics, "gaussian_glm_metrics")
+} else {
+  pins::pin_write(metrics_board, new_metrics, "gaussian_glm_metrics")
+}
+
+vetiver_plot_metrics(
+  pins::pin_read(metrics_board, "gaussian_glm_metrics")
+)
+```
+
+`period` is the rolling window — `"day"`, `"week"`, `"month"`, etc. Pick
+the cadence that matches how often new observations arrive in production.
+
+## Pins board options
+
+| Board | Use case |
+|---|---|
+| `board_temp()` | Local development and testing |
+| `board_s3()` | AWS-hosted teams |
+| `board_azure()` | Azure-hosted teams |
+| `board_connect()` | Posit Connect |
+
+## Multi-likelihood models
+
+`vetiver_ptype.bru()` extracts the input prototype from the **first**
+likelihood's data slot. For models with multiple `bru_obs()` calls, supply
+the prototype manually via `save_prototype` — vetiver accepts a tibble
+there as a custom prototype, overriding the auto-derived one:
+
+```{r}
+v <- vetiver_model(
+  fit,
+  "multi_lhood_model",
+  save_prototype = tibble::tibble(x1 = 0, x2 = 0)  # zero-row is fine
+)
+```
+

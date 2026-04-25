@@ -1,0 +1,446 @@
+---
+title: "Model versioning and MLOps workflows"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Model versioning and MLOps workflows}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+Pinning a model once is a deployment step. Versioning models over time is a
+workflow. This vignette covers the full lifecycle:
+
+1. Train a baseline model and pin it as the first version.
+2. New data arrives — retrain and pin a second version.
+3. Compare both versions on a shared validation set using proper scoring rules.
+4. Promote the better-scoring version to production.
+5. Roll back to the previous version if something goes wrong.
+6. Read longitudinal metrics from pin metadata to track model quality over time.
+
+For the mechanics of a single pin-and-serve cycle see `vignette("vetiver")`.
+For scoring rules see `vignette("scoring")`.
+
+## Setup
+
+```{r}
+library(inlabru)
+library(inlaops)
+library(vetiver)
+library(pins)
+library(purrr)
+library(dplyr)
+library(scoringRules)
+```
+
+For this vignette we use a local folder board. In production swap this for
+`board_s3()`, `board_azure()`, or `board_connect()` — the versioning API is
+identical across all backends.
+
+```{r}
+board <- board_temp()
+```
+
+## 1. Baseline model — version 1
+
+Suppose we are modelling annual wildlife counts at monitoring stations. The
+first year of data is available.
+
+```{r}
+set.seed(42)
+n_stations <- 120
+
+year1 <- data.frame(
+  station  = seq_len(n_stations),
+  habitat  = sample(c("forest", "open"), n_stations, replace = TRUE),
+  effort   = runif(n_stations, 0.5, 2.0)
+)
+year1$habitat_open <- as.integer(year1$habitat == "open")
+log_mu        <- 0.8 + 0.6 * year1$habitat_open + log(year1$effort)
+year1$counts  <- rpois(n_stations, exp(log_mu))
+```
+
+Hold out 20 stations for validation. These same stations are used to evaluate
+every model version so that version comparisons are on equal footing.
+
+```{r}
+set.seed(1)
+val_idx   <- sample(n_stations, 20L)
+val_data  <- year1[val_idx, ]
+train_y1  <- year1[-val_idx, ]
+```
+
+Fit and immediately evaluate before pinning. Storing WAIC, DIC, and holdout
+CRPS in `metadata$user` keeps all quality information co-located with the
+model artefact — no separate experiment tracker required.
+
+```{r}
+fit_v1 <- bru(
+  counts ~ Intercept(1) + habitat_open + effort,
+  family  = "poisson",
+  data    = train_y1,
+  options = bru_options(
+    control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)
+  )
+)
+
+scores_v1 <- bru_score(
+  fit_v1,
+  newdata      = val_data,
+  # Poisson Y-samples: bru_score does not inject family-aware observation
+  # noise — the user writes the rpois call. length(habitat_open) is the
+  # observation count for the per-sample r*() (latent fields are scalars).
+  pred_formula = ~ rpois(
+    length(habitat_open),
+    exp(Intercept + habitat_open + effort)
+  ),
+  y_col        = "counts",
+  n_samples    = 1000L
+)
+
+v1 <- vetiver_model(
+  fit_v1, "wildlife_counts",
+  metadata = list(
+    pred_formula  = "~ exp(Intercept + habitat_open + effort)",
+    n_samples     = 500L,
+    training_rows = nrow(train_y1),
+    dic           = fit_v1$dic$dic,
+    waic          = fit_v1$waic$waic,
+    mean_crps     = mean(scores_v1$crps),
+    mean_logs     = mean(scores_v1$logs)
+  )
+)
+
+vetiver_pin_write(board, v1)
+
+pin_versions(board, "wildlife_counts")
+#> # A tibble: 1 × 3
+#>   version                created             hash
+#>   <chr>                  <dttm>              <chr>
+#> 1 20240115T091234Z-3a2b1 2024-01-15 09:12:34 3a2b1
+```
+
+## 2. New data, new version
+
+A second year of field data arrives. The observation model is the same, but
+the underlying population has changed — new version, same structure.
+
+```{r}
+set.seed(99)
+year2 <- year1
+log_mu2       <- 0.9 + 0.5 * year2$habitat_open + log(year2$effort)
+year2$counts  <- rpois(n_stations, exp(log_mu2))
+
+train_y2 <- year2[-val_idx, ]
+val_y2   <- year2[ val_idx, ]
+```
+
+The validation stations used here are the same indices as before. In a real
+survey, the validation set should be fixed to data that neither model has seen
+during training — not resampled each year.
+
+```{r}
+fit_v2 <- bru(
+  counts ~ Intercept(1) + habitat_open + effort,
+  family  = "poisson",
+  data    = train_y2,
+  options = bru_options(
+    control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)
+  )
+)
+
+scores_v2 <- bru_score(
+  fit_v2,
+  newdata      = val_y2,
+  pred_formula = ~ rpois(
+    length(habitat_open),
+    exp(Intercept + habitat_open + effort)
+  ),
+  y_col        = "counts",
+  n_samples    = 1000L
+)
+
+v2 <- vetiver_model(
+  fit_v2, "wildlife_counts",
+  metadata = list(
+    pred_formula  = "~ exp(Intercept + habitat_open + effort)",
+    n_samples     = 500L,
+    training_rows = nrow(train_y2),
+    dic           = fit_v2$dic$dic,
+    waic          = fit_v2$waic$waic,
+    mean_crps     = mean(scores_v2$crps),
+    mean_logs     = mean(scores_v2$logs)
+  )
+)
+
+vetiver_pin_write(board, v2)
+
+pin_versions(board, "wildlife_counts")
+#> # A tibble: 2 × 3
+#>   version                created             hash
+#>   <chr>                  <dttm>              <chr>
+#> 1 20250210T143012Z-8f4c2 2025-02-10 14:30:12 8f4c2
+#> 2 20240115T091234Z-3a2b1 2024-01-15 09:12:34 3a2b1
+```
+
+## 3. Compare versions before promoting
+
+Both versions are now on the board. Pull their stored quality metrics without
+loading the model objects — this is cheap even when models are large.
+
+```{r}
+versions <- pin_versions(board, "wildlife_counts")
+
+quality <- map_dfr(versions$version, function(ver) {
+  meta <- pin_meta(board, "wildlife_counts", version = ver)
+  tibble(
+    version       = ver,
+    created       = meta$created,
+    training_rows = meta$user$training_rows,
+    waic          = meta$user$waic,
+    dic           = meta$user$dic,
+    mean_crps     = meta$user$mean_crps,
+    mean_logs     = meta$user$mean_logs
+  )
+})
+
+quality
+#> # A tibble: 2 × 7
+#>   version                created    training_rows  waic   dic mean_crps mean_logs
+#>   <chr>                  <dttm>             <int> <dbl> <dbl>     <dbl>     <dbl>
+#> 1 20250210T143012Z-8f4c2 2025-02-10           100  834.  831.     0.381     0.921
+#> 2 20240115T091234Z-3a2b1 2024-01-15           100  847.  844.     0.412     0.987
+```
+
+Version 2 has a lower mean CRPS on the shared validation stations, so its
+posterior predictive distribution is sharper and better calibrated for the
+current population state. Promote it.
+
+## 4. Promote the better version
+
+"Promotion" in a pins workflow means pinning the chosen version a second time
+to a production board. The staging board and the production board are separate
+`board_*` objects pointing to different storage locations (or different S3
+prefixes, Connect spaces, etc.).
+
+```{r}
+prod_board <- board_temp()
+
+# Load the winning version from the staging board. vetiver_pin_read()
+# returns a fully-formed vetiver_model (description + prototype + metadata
+# intact), so we can re-pin it directly to production. Wrapping it again
+# in vetiver_model() would error — there is no method to create a
+# description from a vetiver_model object.
+best_version <- quality$version[which.min(quality$mean_crps)]
+v_winning <- vetiver_pin_read(board, "wildlife_counts",
+                               version = best_version)
+
+vetiver_pin_write(prod_board, v_winning)
+```
+
+The production board now has exactly one version: the promoted model. The
+staging board retains the full history for audit and rollback.
+
+## 5. Roll back
+
+If a newly promoted model behaves unexpectedly in production — elevated
+prediction error on incoming monitoring data, sudden score regression — roll
+back by re-promoting the previous version.
+
+```{r}
+# Re-read versions in case the board state has changed since section 3.
+# pin_versions() orders by `created` descending — newest first, oldest last.
+versions_now <- pin_versions(board, "wildlife_counts")
+stopifnot(
+  "Need at least 2 pinned versions to demonstrate rollback" =
+    nrow(versions_now) >= 2L
+)
+
+# The previous version is the second row (one below newest).
+previous_version <- versions_now$version[2]
+
+v_rollback <- vetiver_pin_read(board, "wildlife_counts",
+                                version = previous_version)
+vetiver_pin_write(prod_board, v_rollback)
+
+message("Rolled back to version: ", previous_version)
+```
+
+Because the staging board still holds every version, rollback is always
+available and costs only a re-pin, not a re-fit.
+
+## 6. Longitudinal quality tracking
+
+As more versions accumulate, reading metrics across the full version history
+gives a longitudinal view of model quality — directly from the board with no
+external experiment-tracking database.
+
+```{r}
+library(ggplot2)
+
+quality |>
+  mutate(created = as.POSIXct(created)) |>
+  ggplot(aes(x = created)) +
+  geom_line(aes(y = mean_crps, colour = "CRPS")) +
+  geom_point(aes(y = mean_crps, colour = "CRPS"), size = 2) +
+  geom_line(aes(y = waic / 1000, colour = "WAIC / 1000"), linetype = "dashed") +
+  labs(
+    x      = "Version date",
+    y      = "Score (lower is better)",
+    colour = NULL,
+    title  = "Model quality across versions"
+  ) +
+  theme_minimal()
+```
+
+WAIC and DIC are training-data metrics (available without a holdout set) and
+make a useful leading indicator. Mean CRPS on the fixed validation set is the
+ground truth for how each version performs on new data. If WAIC keeps
+improving but CRPS stagnates or worsens, the model is overfitting to the
+growing training corpus.
+
+## 7. Serving the production model
+
+The production board always serves the currently promoted version. The serving
+code does not need to know which version number it is — it just reads the
+latest pin.
+
+```{r}
+library(plumber)
+
+v_prod <- vetiver_model(
+  pin_read(prod_board, "wildlife_counts"),
+  "wildlife_counts"
+)
+
+pr() |>
+  vetiver_api(v_prod) |>
+  pr_run(port = 8088)
+```
+
+Query the endpoint with httr2:
+
+```{r}
+library(httr2)
+
+new_stations <- data.frame(
+  habitat_open = c(0L, 1L),
+  effort       = c(1.0, 1.5)
+)
+
+resp <- request("http://127.0.0.1:8088/predict") |>
+  req_body_raw(
+    jsonlite::toJSON(new_stations, dataframe = "rows"),
+    type = "application/json"
+  ) |>
+  req_perform()
+
+resp_body_json(resp)
+#> # A tibble: 2 × 4
+#>   .pred .pred_low .pred_high .pred_sd
+#>   <dbl>     <dbl>      <dbl>    <dbl>
+#> 1  2.18      1.43       3.29    0.474
+#> 2  3.54      2.41       5.10    0.685
+```
+
+## 8. Real production boards
+
+`board_temp()` is fine for development and CI. In production, two
+backends are common:
+
+### Posit Connect
+
+Authenticate once via environment variables (these typically come from
+the deploy environment, not the source code):
+
+```{r}
+Sys.setenv(
+  CONNECT_SERVER = "https://connect.example.com/",
+  CONNECT_API_KEY = "..."   # set in your deploy environment, never commit
+)
+
+prod_board <- board_connect()
+vetiver_pin_write(prod_board, v_winning)
+```
+
+Connect-hosted pins respect the same `pin_versions()` / `pin_meta()` API
+shown above, so the longitudinal-quality and rollback flows transfer
+unchanged. Connect adds access control on top — share the pin with the
+serving content's runtime user, not the world.
+
+### S3 (or any object store)
+
+```{r}
+prod_board <- board_s3(
+  bucket = "my-org-models",
+  prefix = "wildlife_counts/"
+)
+
+vetiver_pin_write(prod_board, v_winning)
+```
+
+For S3 the deploy environment needs `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` (or an IAM role on the runtime). The `prefix`
+argument lets one bucket host many models without name collisions —
+useful when you have several inlabru models in production and want a
+single bucket policy to cover them all.
+
+### Auth in serving code
+
+The plumber API code that calls `pin_read()` runs as a long-lived
+process. Whatever credentials it needs must be available to that
+process — environment variables, an IAM role, a Connect deploy token —
+not interactively prompted. The boilerplate in section 7 reads from
+`prod_board`, which the serving process constructs with whatever
+credentials its environment provides.
+
+A common pattern:
+
+```{r}
+# At the top of plumber.R
+prod_board <- if (Sys.getenv("CONNECT_API_KEY") != "") {
+  pins::board_connect()
+} else if (Sys.getenv("AWS_ACCESS_KEY_ID") != "") {
+  pins::board_s3(bucket = Sys.getenv("MODEL_BUCKET"),
+                 prefix = Sys.getenv("MODEL_PREFIX"))
+} else {
+  pins::board_temp(Sys.getenv("MODEL_DIR", "./model-store"))
+}
+
+v_prod <- vetiver::vetiver_model(
+  pins::pin_read(prod_board, "wildlife_counts"),
+  "wildlife_counts"
+)
+```
+
+This keeps the same plumber.R working for local dev (folder), CI (folder
+via env var), staging (S3 with read-only IAM), and Connect — the source
+code doesn't change between environments, only the secrets do.
+
+### A note on board hygiene
+
+The "promote by re-pinning" pattern in section 4 is convenient but every
+promotion creates a new version on the production board. If you want
+production to hold exactly one version at a time, set
+`versioned = FALSE` on the production board (still allowed alongside a
+versioned staging board). In practice keeping a short history on
+production is useful for fast rollback, so leave versioning on and let
+older versions age out via `pin_versions_prune()`.
+
+## Versioning checklist
+
+| Step | What to do |
+|---|---|
+| Before pinning | Fit with `config = TRUE`; compute holdout scores with `bru_score()` |
+| When pinning | Store WAIC, DIC, CRPS, log-score, and `training_rows` in `metadata$user` |
+| Before promoting | Compare `mean_crps` on a **fixed** validation set across all candidate versions |
+| In production | Always read the latest pin; never hard-code a version hash |
+| On regression | Re-promote the previous version from the staging board; investigate offline |
+| For deploy | Construct the production board from environment credentials, not interactive auth |

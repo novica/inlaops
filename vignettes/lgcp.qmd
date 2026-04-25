@@ -1,0 +1,248 @@
+---
+title: "Serving LGCP intensity surfaces"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Serving LGCP intensity surfaces}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+Log-Gaussian Cox process (LGCP) fits are served by the vetiver bridge the
+same way any other spatial point fit is served: the request body carries
+query locations, the pred_formula evaluates the rate / intensity surface,
+and the handler returns posterior summaries. The wire output describes
+**intensity** (events per unit area) rather than counts — that is a
+documentation point, not a different endpoint contract.
+
+This vignette walks through:
+
+1. Fitting an LGCP with inlabru's modern API.
+2. Serving it via vetiver (the standard path).
+3. The custom-plumber fallback for cases where the bridge does not fit
+   (custom request shapes, multi-likelihood models, areal fits).
+
+## Setup
+
+```{r}
+library(inlabru)
+library(INLA)
+library(sf)
+library(vetiver)
+library(pins)
+library(plumber)
+```
+
+## 1. Fit the LGCP
+
+A toy 2D point pattern over a unit square:
+
+```{r}
+set.seed(42)
+n_pts <- 80
+pts   <- sf::st_as_sf(
+  data.frame(
+    x = runif(n_pts),
+    y = runif(n_pts)
+  ),
+  coords = c("x", "y"),
+  crs    = NA
+)
+
+domain <- sf::st_polygon(list(rbind(
+  c(0, 0), c(1, 0), c(1, 1), c(0, 1), c(0, 0)
+)))
+mesh <- fmesher::fm_mesh_2d_inla(
+  loc.domain = sf::st_coordinates(domain)[, 1:2],
+  max.edge   = c(0.1, 0.3)
+)
+spde <- inla.spde2.pcmatern(mesh,
+                            prior.range = c(0.3, 0.5),
+                            prior.sigma = c(1.0, 0.01))
+
+# inlabru >= 2.12 uses bru_obs() (like() is deprecated). For LGCP, the
+# integration domain goes through the `domain` argument as a named list
+# matching the predictor variable in the formula RHS — here `geometry`.
+fit <- bru(
+  ~ field(geometry, model = spde) + Intercept(1),
+  bru_obs(
+    formula = geometry ~ .,
+    family  = "cp",
+    data    = pts,
+    domain  = list(geometry = mesh)
+  ),
+  options = bru_options(control.compute = list(config = TRUE))
+)
+```
+
+## 2. Serve via the vetiver bridge
+
+Wrap the fit, store the intensity formula and CRS in pin metadata, pin,
+and serve. The `coord_names` contract is the same as for any sf point
+fit — the columns produced by `sf::st_coordinates(fit_data)`:
+
+```{r}
+v <- vetiver_model(
+  fit, "lgcp_example",
+  metadata = list(
+    pred_formula = "~ exp(Intercept + field)",   # intensity, not counts
+    n_samples    = 500L,
+    coord_names  = c("X", "Y"),
+    crs          = NA
+  )
+)
+
+board <- board_temp()
+vetiver_pin_write(board, v)
+```
+
+Test the endpoint locally:
+
+```{r}
+pr() |> vetiver_api(v) |> pr_run(port = 8088)
+```
+
+Query it from another R session:
+
+```{r}
+library(httr2)
+
+query <- data.frame(
+  X = c(0.2, 0.5, 0.8),
+  Y = c(0.5, 0.5, 0.5)
+)
+
+resp <- request("http://127.0.0.1:8088/predict") |>
+  req_body_raw(
+    jsonlite::toJSON(query, dataframe = "rows"),
+    type = "application/json"
+  ) |>
+  req_perform()
+
+resp_body_json(resp)
+#> # A tibble: 3 × 4
+#>   .pred .pred_low .pred_high .pred_sd
+#>   <dbl>     <dbl>      <dbl>    <dbl>
+#> 1  67.4      38.2      125.      22.7
+#> 2  92.1      60.9      141.      20.1
+#> 3  71.8      41.5      122.      20.4
+```
+
+The columns are the same shape as for any vetiver-served bru model. For
+LGCP the values are **posterior intensity** (events per unit area) at
+each query location, since `pred_formula = ~ exp(Intercept + field)` is
+on the intensity scale. To get expected counts over a region, integrate
+intensity against the region's area client-side, or write a custom
+plumber API (see section 3) that does the integration server-side.
+
+For Docker packaging, see `vignette("docker")` — the geospatial base
+image and INLA install line are the same as for any other spatial fit.
+
+## 3. Fallback — custom plumber API
+
+You only need a hand-written plumber API if the bridge's contract does
+not fit your use case. Common reasons:
+
+- You want the endpoint to integrate intensity over user-supplied
+  polygons (return expected counts) rather than evaluate at points.
+- You have a multi-likelihood fit and want to serve a non-default
+  likelihood's prediction shape.
+- You want a custom request schema with non-coordinate fields (e.g.
+  area IDs that the API joins to a separately pinned polygon set).
+
+Pin the fit using `pins::pin_write()` directly (you can still use
+vetiver versioning if you want — `vetiver_pin_write()` works for
+storage; you just opt out of `vetiver_api()`):
+
+```{r}
+pin_write(board, fit, name = "lgcp_custom",
+          metadata = list(
+            description  = "LGCP intensity model on the unit square",
+            pred_formula = "~ exp(Intercept + field)",
+            n_samples    = 500L,
+            crs          = NA
+          ))
+```
+
+Save the following as `plumber.R` in your project directory. This is the
+file body, not an R chunk to evaluate — copy it into a `plumber.R` file:
+
+```r
+#* @apiTitle LGCP intensity endpoint
+
+board <- pins::board_temp("./model-store")
+fit   <- pins::pin_read(board, "lgcp_custom")
+meta  <- pins::pin_meta(board, "lgcp_custom")$user
+
+pred_expr <- eval(parse(text = meta$pred_formula), envir = baseenv())
+n_samples <- meta$n_samples %||% 200L
+
+#* Posterior intensity at a list of query locations.
+#* @post /intensity
+function(req) {
+  body <- req$body
+  if (is.null(body$x) || is.null(body$y)) {
+    stop("Request body must have `x` and `y` numeric vectors.",
+         call. = FALSE)
+  }
+  query_sf <- sf::st_as_sf(
+    data.frame(x = body$x, y = body$y),
+    coords = c("x", "y"),
+    crs    = meta$crs
+  )
+
+  preds <- inlabru::predict(
+    fit,
+    newdata   = query_sf,
+    formula   = pred_expr,
+    n.samples = n_samples
+  )
+
+  list(
+    intensity_mean = preds$mean,
+    intensity_low  = preds$q0.025,
+    intensity_high = preds$q0.975,
+    intensity_sd   = preds$sd
+  )
+}
+```
+
+Run the API:
+
+```r
+plumber::pr("plumber.R") |> plumber::pr_run(port = 8088)
+```
+
+Query it:
+
+```r
+library(httr2)
+
+resp <- request("http://127.0.0.1:8088/intensity") |>
+  req_body_json(list(x = c(0.2, 0.5, 0.8), y = c(0.5, 0.5, 0.5))) |>
+  req_perform()
+
+resp_body_json(resp)
+```
+
+## What you keep, what you give up
+
+| Feature | Vetiver path (section 2) | Custom plumber (section 3) |
+|---|---|---|
+| Versioning via `pins` | ✓ | ✓ |
+| REST API | ✓ (auto-generated) | ✓ (hand-written) |
+| Ptype validation on requests | ✓ | manual |
+| `vetiver_compute_metrics` | ✓ | not applicable |
+| `vetiver_prepare_docker` | ✓ | hand-written `Dockerfile` |
+| Rollback via re-pin | ✓ | ✓ |
+| Custom request shape | restricted to ptype | unrestricted |
+
+Use the vetiver path unless you need a request schema or response shape
+that doesn't fit `/predict`'s posterior-summary contract.
