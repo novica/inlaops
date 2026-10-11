@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "inlaops: MLOps and tidymodels Bridge for inlabru Models"
+abstract: >-
+  Provides vetiver and tidymodels integration for Bayesian spatial and
+  latent Gaussian models fit with inlabru. Includes a vetiver bridge
+  (versioning, REST API serving, Docker packaging) for bru objects, broom
+  tidiers, a parsnip model constructor scoped to fixed-effects models, and
+  proper scoring rule helpers via inlabru::generate().
+authors:
+  - family-names: "Nakov"
+    given-names: "Novica"
+    email: novica.nakov@vetinst.no
+    orcid: "https://orcid.org/0009-0005-7773-7718"
+version: 0.1.0 # x-release-please-version
+date-released: 2026-10-11
+license: Apache-2.0
+url: "https://novica.github.io/inlaops/"
+repository-code: "https://github.com/novica/inlaops"
