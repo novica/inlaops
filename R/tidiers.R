@@ -28,22 +28,26 @@ augment.bru <- function(x, ...) augment_bru(x, ...)
 tidy_bru <- function(x, effects = "fixed", ...) {
   if (effects == "fixed") {
     fe <- x$summary.fixed
-    if (is.null(fe)) stop("No fixed effects found on bru fit.")
+    if (is.null(fe)) {
+      stop("No fixed effects found on bru fit.")
+    }
     tibble(
-      term      = rownames(fe),
-      estimate  = fe$mean,
+      term = rownames(fe),
+      estimate = fe$mean,
       std.error = fe$sd,
-      conf.low  = fe$`0.025quant`,
+      conf.low = fe$`0.025quant`,
       conf.high = fe$`0.975quant`
     )
   } else if (effects == "hyperpar") {
     hp <- x$summary.hyperpar
-    if (is.null(hp)) stop("No hyperparameters found on bru fit.")
+    if (is.null(hp)) {
+      stop("No hyperparameters found on bru fit.")
+    }
     tibble(
-      term      = rownames(hp),
-      estimate  = hp$mean,
+      term = rownames(hp),
+      estimate = hp$mean,
       std.error = hp$sd,
-      conf.low  = hp$`0.025quant`,
+      conf.low = hp$`0.025quant`,
       conf.high = hp$`0.975quant`
     )
   } else {
@@ -62,34 +66,43 @@ tidy_bru <- function(x, effects = "fixed", ...) {
 #'   (where the sum is not statistically meaningful).
 #' @export
 glance_bru <- function(x, ...) {
-  dic_val  <- x$dic$dic    %||% NA_real_
-  waic_val <- x$waic$waic  %||% NA_real_
+  dic_val <- x$dic$dic %||% NA_real_
+  waic_val <- x$waic$waic %||% NA_real_
   mlik_val <- tryCatch(x$mlik[1, 1], error = function(e) NA_real_) %||% NA_real_
 
-  nobs_val <- tryCatch({
-    lhoods <- x$bru_info$lhoods
-    # nobs is ill-defined for any multi-likelihood fit — even when families
-    # match, summing rows across likelihoods that may share observations or
-    # have different supports does not give a meaningful count.
-    if (length(lhoods) > 1L) {
-      NA_integer_
-    } else {
-      nrow(lhoods[[1L]]$data)
-    }
-  }, error = function(e) NA_integer_)
+  nobs_val <- tryCatch(
+    {
+      lhoods <- x$bru_info$lhoods
+      # nobs is ill-defined for any multi-likelihood fit — even when families
+      # match, summing rows across likelihoods that may share observations or
+      # have different supports does not give a meaningful count.
+      if (length(lhoods) > 1L) {
+        NA_integer_
+      } else {
+        nrow(lhoods[[1L]]$data)
+      }
+    },
+    error = function(e) NA_integer_
+  )
 
-  elapsed_val <- tryCatch({
-    bt <- x$bru_timings
-    if (!is.null(bt) && "Elapsed" %in% names(bt)) sum(as.numeric(bt$Elapsed), na.rm = TRUE)
-    else NA_real_
-  }, error = function(e) NA_real_)
+  elapsed_val <- tryCatch(
+    {
+      bt <- x$bru_timings
+      if (!is.null(bt) && "Elapsed" %in% names(bt)) {
+        sum(as.numeric(bt$Elapsed), na.rm = TRUE)
+      } else {
+        NA_real_
+      }
+    },
+    error = function(e) NA_real_
+  )
 
   tibble(
-    dic             = dic_val,
-    waic            = waic_val,
+    dic = dic_val,
+    waic = waic_val,
     marginal_loglik = mlik_val,
-    nobs            = nobs_val,
-    elapsed         = elapsed_val
+    nobs = nobs_val,
+    elapsed = elapsed_val
   )
 }
 
@@ -112,15 +125,24 @@ glance_bru <- function(x, ...) {
 #' @return `data` with additional columns `.fitted`, `.fitted_low`,
 #'   `.fitted_high`, `.fitted_sd`.
 #' @export
-augment_bru <- function(x, data, pred_formula, n_samples = 500L,
-                        seed = NULL, ...) {
-  preds <- .with_seed(seed, predict(
-    x,
-    newdata   = data,
-    formula   = pred_formula,
-    n.samples = n_samples,
-    ...
-  ))
+augment_bru <- function(
+  x,
+  data,
+  pred_formula,
+  n_samples = 500L,
+  seed = NULL,
+  ...
+) {
+  preds <- .with_seed(
+    seed,
+    predict(
+      x,
+      newdata = data,
+      formula = pred_formula,
+      n.samples = n_samples,
+      ...
+    )
+  )
   # Drop any pre-existing .fitted* columns so augment(augment(...)) does not
   # produce duplicate-name warnings or stale numbers.
   data <- tibble::as_tibble(data)
@@ -128,10 +150,13 @@ augment_bru <- function(x, data, pred_formula, n_samples = 500L,
     names(data),
     c(".fitted", ".fitted_low", ".fitted_high", ".fitted_sd")
   )] <- NULL
-  bind_cols(data, tibble(
-    .fitted      = preds$mean,
-    .fitted_low  = preds$q0.025,
-    .fitted_high = preds$q0.975,
-    .fitted_sd   = preds$sd
-  ))
+  bind_cols(
+    data,
+    tibble(
+      .fitted = preds$mean,
+      .fitted_low = preds$q0.025,
+      .fitted_high = preds$q0.975,
+      .fitted_sd = preds$sd
+    )
+  )
 }

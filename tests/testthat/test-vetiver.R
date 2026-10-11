@@ -1,12 +1,16 @@
 test_that("vetiver_create_description produces correct string", {
   fake_fit <- structure(
-    list(bru_info = list(lhoods = list(
-      list(family = "gaussian"),
-      list(family = "poisson")
-    ))),
+    list(
+      bru_info = list(
+        lhoods = list(
+          list(family = "gaussian"),
+          list(family = "poisson")
+        )
+      )
+    ),
     class = c("bru", "inla")
   )
-  desc <- inlaops:::.vetiver_create_description_bru(fake_fit)
+  desc <- .vetiver_create_description_bru(fake_fit)
   expect_match(desc, "gaussian")
   expect_match(desc, "poisson")
   expect_match(desc, "inlabru model")
@@ -18,7 +22,7 @@ test_that("vetiver_ptype extracts zero-row tibble from first likelihood", {
     list(bru_info = list(lhoods = list(list(data = df)))),
     class = c("bru", "inla")
   )
-  ptype <- inlaops:::.vetiver_ptype_bru(fake_fit)
+  ptype <- .vetiver_ptype_bru(fake_fit)
   expect_s3_class(ptype, "tbl_df")
   expect_equal(nrow(ptype), 0L)
   expect_named(ptype, c("x1", "x2"))
@@ -29,7 +33,7 @@ test_that("vetiver_ptype errors when no data on likelihood", {
     list(bru_info = list(lhoods = list(list(data = NULL)))),
     class = c("bru", "inla")
   )
-  expect_error(inlaops:::.vetiver_ptype_bru(fake_fit), "no data found")
+  expect_error(.vetiver_ptype_bru(fake_fit), "no data found")
 })
 
 test_that("vetiver_prepare_model errors when configs absent", {
@@ -37,7 +41,7 @@ test_that("vetiver_prepare_model errors when configs absent", {
     list(misc = list(configs = NULL)),
     class = c("bru", "inla")
   )
-  expect_error(inlaops:::.vetiver_prepare_model_bru(fake_fit), "config = TRUE")
+  expect_error(.vetiver_prepare_model_bru(fake_fit), "config = TRUE")
 })
 
 test_that("vetiver_prepare_model passes through when configs present", {
@@ -45,7 +49,7 @@ test_that("vetiver_prepare_model passes through when configs present", {
     list(misc = list(configs = list(something = TRUE))),
     class = c("bru", "inla")
   )
-  result <- inlaops:::.vetiver_prepare_model_bru(fake_fit)
+  result <- .vetiver_prepare_model_bru(fake_fit)
   expect_identical(result, fake_fit)
 })
 
@@ -56,13 +60,14 @@ test_that("vetiver_ptype surfaces sf coord columns alongside attributes", {
 
   pts <- sf::st_as_sf(
     data.frame(x = 1:3, y = 1:3, val = 10:12),
-    coords = c("x", "y"), crs = 4326
+    coords = c("x", "y"),
+    crs = 4326
   )
   fake_fit <- structure(
     list(bru_info = list(lhoods = list(list(data = pts)))),
     class = c("bru", "inla")
   )
-  ptype <- inlaops:::.vetiver_ptype_bru(fake_fit)
+  ptype <- .vetiver_ptype_bru(fake_fit)
   expect_s3_class(ptype, "tbl_df")
   expect_equal(nrow(ptype), 0L)
   expect_true("val" %in% names(ptype))
@@ -75,13 +80,17 @@ test_that("vetiver_ptype surfaces sf coord columns alongside attributes", {
 test_that("vetiver_ptype surfaces sp coord columns alongside attributes", {
   skip_if_not_installed("sp")
 
-  coords   <- matrix(c(1, 2, 3, 4), ncol = 2, dimnames = list(NULL, c("lon", "lat")))
-  spdf     <- sp::SpatialPointsDataFrame(coords, data.frame(val = c(10L, 20L)))
+  coords <- matrix(
+    c(1, 2, 3, 4),
+    ncol = 2,
+    dimnames = list(NULL, c("lon", "lat"))
+  )
+  spdf <- sp::SpatialPointsDataFrame(coords, data.frame(val = c(10L, 20L)))
   fake_fit <- structure(
     list(bru_info = list(lhoods = list(list(data = spdf)))),
     class = c("bru", "inla")
   )
-  ptype <- inlaops:::.vetiver_ptype_bru(fake_fit)
+  ptype <- .vetiver_ptype_bru(fake_fit)
   expect_s3_class(ptype, "tbl_df")
   expect_equal(nrow(ptype), 0L)
   expect_true(all(c("val", "lon", "lat") %in% names(ptype)))
@@ -102,7 +111,7 @@ test_that("vetiver_prepare_model rejects polygon sf fits with a clear message", 
     class = c("bru", "inla")
   )
   expect_error(
-    inlaops:::.vetiver_prepare_model_bru(fake_fit),
+    .vetiver_prepare_model_bru(fake_fit),
     "areal"
   )
 })
@@ -110,9 +119,11 @@ test_that("vetiver_prepare_model rejects polygon sf fits with a clear message", 
 test_that(".bru_reconstruct_spatial rebuilds sf object correctly", {
   skip_if_not_installed("sf")
 
-  df     <- tibble::tibble(lon = c(10.0, 11.0), lat = c(59.0, 60.0), z = c(1L, 2L))
-  result <- inlaops:::.bru_reconstruct_spatial(
-    df, "sf_point", list(coord_names = c("lon", "lat"), crs = 4326L)
+  df <- tibble::tibble(lon = c(10.0, 11.0), lat = c(59.0, 60.0), z = c(1L, 2L))
+  result <- .bru_reconstruct_spatial(
+    df,
+    "sf_point",
+    list(coord_names = c("lon", "lat"), crs = 4326L)
   )
 
   expect_s3_class(result, "sf")
@@ -126,9 +137,11 @@ test_that(".bru_reconstruct_spatial rebuilds sf object correctly", {
 test_that(".bru_reconstruct_spatial rebuilds SpatialPointsDataFrame correctly", {
   skip_if_not_installed("sp")
 
-  df     <- tibble::tibble(lon = c(10.0, 11.0), lat = c(59.0, 60.0), z = c(1L, 2L))
-  result <- inlaops:::.bru_reconstruct_spatial(
-    df, "sp_point", list(coord_names = c("lon", "lat"), crs = NULL)
+  df <- tibble::tibble(lon = c(10.0, 11.0), lat = c(59.0, 60.0), z = c(1L, 2L))
+  result <- .bru_reconstruct_spatial(
+    df,
+    "sp_point",
+    list(coord_names = c("lon", "lat"), crs = NULL)
   )
 
   expect_s4_class(result, "SpatialPointsDataFrame")
@@ -139,8 +152,11 @@ test_that(".bru_reconstruct_spatial rebuilds SpatialPointsDataFrame correctly", 
 test_that(".bru_reconstruct_spatial errors for polygon classes", {
   df <- tibble::tibble(id = 1L)
   expect_error(
-    inlaops:::.bru_reconstruct_spatial(df, "sf_polygon",
-                                       list(coord_names = c("x", "y"))),
+    .bru_reconstruct_spatial(
+      df,
+      "sf_polygon",
+      list(coord_names = c("x", "y"))
+    ),
     "not implemented"
   )
 })
@@ -148,62 +164,62 @@ test_that(".bru_reconstruct_spatial errors for polygon classes", {
 test_that(".sp_crs handles EPSG integers, EPSG strings, and WKT", {
   skip_if_not_installed("sp")
 
-  expect_s4_class(inlaops:::.sp_crs(4326L),    "CRS")
-  expect_s4_class(inlaops:::.sp_crs("4326"),   "CRS")
-  expect_s4_class(inlaops:::.sp_crs(NULL),     "CRS")
-  expect_s4_class(inlaops:::.sp_crs(NA),       "CRS")
+  expect_s4_class(.sp_crs(4326L), "CRS")
+  expect_s4_class(.sp_crs("4326"), "CRS")
+  expect_s4_class(.sp_crs(NULL), "CRS")
+  expect_s4_class(.sp_crs(NA), "CRS")
   # Short WKT1 for WGS84. This should not get an "EPSG:" prefix glued onto it.
   wkt <- paste0(
     'GEOGCS["WGS 84",',
     'DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],',
     'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
   )
-  expect_s4_class(inlaops:::.sp_crs(wkt), "CRS")
+  expect_s4_class(.sp_crs(wkt), "CRS")
 })
 
 test_that(".parse_pred_formula accepts formulas and formula strings", {
   expect_identical(
-    inlaops:::.parse_pred_formula(~ Intercept + x),
+    .parse_pred_formula(~ Intercept + x),
     ~ Intercept + x
   )
   expect_s3_class(
-    inlaops:::.parse_pred_formula("~ exp(Intercept + x)"),
+    .parse_pred_formula("~ exp(Intercept + x)"),
     "formula"
   )
   expect_s3_class(
-    inlaops:::.parse_pred_formula("~ plogis(Intercept + x1 + x2)"),
+    .parse_pred_formula("~ plogis(Intercept + x1 + x2)"),
     "formula"
   )
   # Qualified calls and slot access are allowed — the trust model is that
   # whoever writes to the pins board is trusted.
   expect_s3_class(
-    inlaops:::.parse_pred_formula("~ base::exp(Intercept + x)"),
+    .parse_pred_formula("~ base::exp(Intercept + x)"),
     "formula"
   )
 })
 
 test_that(".parse_pred_formula rejects non-formula expressions", {
   expect_error(
-    inlaops:::.parse_pred_formula("system('rm -rf /')"),
+    .parse_pred_formula("system('rm -rf /')"),
     "formula expression"
   )
   expect_error(
-    inlaops:::.parse_pred_formula("1 + 1"),
+    .parse_pred_formula("1 + 1"),
     "formula expression"
   )
   expect_error(
-    inlaops:::.parse_pred_formula(NULL),
+    .parse_pred_formula(NULL),
     "not set"
   )
   expect_error(
-    inlaops:::.parse_pred_formula(42),
+    .parse_pred_formula(42),
     "must be a formula or a single string"
   )
 })
 
 test_that(".parse_pred_formula gives a helpful error on parse failure", {
   expect_error(
-    inlaops:::.parse_pred_formula("~ x +"),
+    .parse_pred_formula("~ x +"),
     "did not parse"
   )
 })
@@ -211,7 +227,7 @@ test_that(".parse_pred_formula gives a helpful error on parse failure", {
 test_that(".bru_reconstruct_spatial errors when coord_names missing", {
   df <- tibble::tibble(x = 1.0, y = 2.0)
   expect_error(
-    inlaops:::.bru_reconstruct_spatial(df, "sf_point", list()),
+    .bru_reconstruct_spatial(df, "sf_point", list()),
     "coord_names"
   )
 })

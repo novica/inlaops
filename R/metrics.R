@@ -57,39 +57,53 @@
 #' @return A tibble with one row per observation and columns `crps`, `logs`,
 #'   `se`, `ds`.
 #' @export
-bru_score <- function(fit, newdata, pred_formula, y_col,
-                      n_samples = 1000L, seed = NULL) {
+bru_score <- function(
+  fit,
+  newdata,
+  pred_formula,
+  y_col,
+  n_samples = 1000L,
+  seed = NULL
+) {
   if (!requireNamespace("scoringRules", quietly = TRUE)) {
     stop("Package 'scoringRules' is required for bru_score().")
   }
 
-  samples <- .with_seed(seed, inlabru::generate(
-    fit,
-    newdata   = newdata,
-    formula   = pred_formula,
-    n.samples = n_samples
-  ))
+  samples <- .with_seed(
+    seed,
+    inlabru::generate(
+      fit,
+      newdata = newdata,
+      formula = pred_formula,
+      n.samples = n_samples
+    )
+  )
 
   if (!is.matrix(samples) || nrow(samples) != nrow(newdata)) {
     stop(
       "inlabru::generate() did not return an N_obs x N_samples matrix ",
-      "(got ", paste(class(samples), collapse = "/"),
-      ", nrow = ", NROW(samples), ", nrow(newdata) = ", nrow(newdata), "). ",
+      "(got ",
+      paste(class(samples), collapse = "/"),
+      ", nrow = ",
+      NROW(samples),
+      ", nrow(newdata) = ",
+      nrow(newdata),
+      "). ",
       "Use a pred_formula that produces one row per observation, or call ",
       "scoringRules directly on the generator output.",
       call. = FALSE
     )
   }
 
-  y           <- newdata[[y_col]]
+  y <- newdata[[y_col]]
   sample_mean <- rowMeans(samples)
-  sample_var  <- apply(samples, 1L, stats::var)
-  var_floor   <- pmax(sample_var, .Machine$double.eps)
+  sample_var <- apply(samples, 1L, stats::var)
+  var_floor <- pmax(sample_var, .Machine$double.eps)
 
   tibble::tibble(
     crps = scoringRules::crps_sample(y, samples),
     logs = scoringRules::logs_sample(y, samples),
-    se   = (y - sample_mean)^2,
-    ds   = (y - sample_mean)^2 / var_floor + log(var_floor)
+    se = (y - sample_mean)^2,
+    ds = (y - sample_mean)^2 / var_floor + log(var_floor)
   )
 }

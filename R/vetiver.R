@@ -45,14 +45,18 @@ NULL
     # st_coordinates() returns columns named X, Y (or X, Y, Z) — that is the
     # request body contract for sf fits.
     coords <- sf::st_coordinates(lhood_data)
-    flat   <- as_tibble(sf::st_drop_geometry(lhood_data))
-    for (nm in colnames(coords)) flat[[nm]] <- coords[, nm]
+    flat <- as_tibble(sf::st_drop_geometry(lhood_data))
+    for (nm in colnames(coords)) {
+      flat[[nm]] <- coords[, nm]
+    }
     return(flat[0, ])
   }
   if (identical(spatial_class, "sp_point")) {
-    attrs  <- as_tibble(lhood_data@data)
+    attrs <- as_tibble(lhood_data@data)
     coords <- sp::coordinates(lhood_data)
-    for (nm in colnames(coords)) attrs[[nm]] <- coords[, nm]
+    for (nm in colnames(coords)) {
+      attrs[[nm]] <- coords[, nm]
+    }
     return(attrs[0, ])
   }
   as_tibble(lhood_data[0, , drop = FALSE])
@@ -94,19 +98,21 @@ NULL
   # the API is wired up). Malformed pred_formula then fails at API startup
   # instead of on the first request, and the inner closure does no per-request
   # parsing.
-  user_meta     <- vetiver_model$metadata$user
-  pred_expr     <- .parse_pred_formula(user_meta$pred_formula)
+  user_meta <- vetiver_model$metadata$user
+  pred_expr <- .parse_pred_formula(user_meta$pred_formula)
   # 200 is a production-reasonable default — enough for stable mean +
   # 95% CI, and ~5x cheaper per request than the old 1000. Pin a new
   # version with metadata$user$n_samples = 1000 if you need tighter tails.
-  n_samples     <- user_meta$n_samples %||% 200L
-  model_obj     <- vetiver_model$model
+  n_samples <- user_meta$n_samples %||% 200L
+  model_obj <- vetiver_model$model
   # Detect the spatial data class directly from the fit. Stashing this in
   # metadata would be fragile: vetiver_meta() folds the writer's metadata
   # into the `user` slot, and users typically overwrite `metadata$user`
   # wholesale at pin time to set pred_formula / coord_names / crs, which
   # would erase anything the writer stored there.
-  spatial_class <- .bru_detect_spatial_class(model_obj$bru_info$lhoods[[1]]$data)
+  spatial_class <- .bru_detect_spatial_class(
+    model_obj$bru_info$lhoods[[1]]$data
+  )
 
   function(req) {
     new_data <- as_tibble(req$body)
@@ -119,16 +125,16 @@ NULL
 
     preds <- predict(
       model_obj,
-      newdata   = new_data,
-      formula   = pred_expr,
+      newdata = new_data,
+      formula = pred_expr,
       n.samples = n_samples
     )
 
     tibble(
-      .pred      = preds$mean,
-      .pred_low  = preds$q0.025,
+      .pred = preds$mean,
+      .pred_low = preds$q0.025,
       .pred_high = preds$q0.975,
-      .pred_sd   = preds$sd
+      .pred_sd = preds$sd
     )
   }
 }
@@ -149,7 +155,9 @@ NULL
       call. = FALSE
     )
   }
-  if (inherits(x, "formula")) return(x)
+  if (inherits(x, "formula")) {
+    return(x)
+  }
   if (!is.character(x) || length(x) != 1L) {
     stop(
       "metadata$user$pred_formula must be a formula or a single string.",
@@ -159,8 +167,11 @@ NULL
   parsed <- tryCatch(
     str2lang(x),
     error = function(e) {
-      stop("metadata$user$pred_formula did not parse: ", conditionMessage(e),
-           call. = FALSE)
+      stop(
+        "metadata$user$pred_formula did not parse: ",
+        conditionMessage(e),
+        call. = FALSE
+      )
     }
   )
   if (!is.call(parsed) || !identical(parsed[[1L]], quote(`~`))) {
@@ -189,22 +200,34 @@ NULL
 # Point fits use coordinate reconstruction from the request body. Polygon
 # fits are rejected at prepare time (areal-lookup support deferred).
 .bru_detect_spatial_class <- function(data) {
-  if (is.null(data)) return(NULL)
-  if (inherits(data, "sf")) {
-    if (!requireNamespace("sf", quietly = TRUE)) return("sf_point")
-    geo_types <- as.character(sf::st_geometry_type(data))
-    if (all(geo_types %in% c("POINT", "MULTIPOINT"))) return("sf_point")
-    if (all(geo_types %in% c("POLYGON", "MULTIPOLYGON"))) return("sf_polygon")
-    return("sf_point")  # mixed or unusual — let downstream code error
+  if (is.null(data)) {
+    return(NULL)
   }
-  if (inherits(data, "SpatialPointsDataFrame"))   return("sp_point")
-  if (inherits(data, "SpatialPolygonsDataFrame")) return("sp_polygon")
+  if (inherits(data, "sf")) {
+    if (!requireNamespace("sf", quietly = TRUE)) {
+      return("sf_point")
+    }
+    geo_types <- as.character(sf::st_geometry_type(data))
+    if (all(geo_types %in% c("POINT", "MULTIPOINT"))) {
+      return("sf_point")
+    }
+    if (all(geo_types %in% c("POLYGON", "MULTIPOLYGON"))) {
+      return("sf_polygon")
+    }
+    return("sf_point") # mixed or unusual — let downstream code error
+  }
+  if (inherits(data, "SpatialPointsDataFrame")) {
+    return("sp_point")
+  }
+  if (inherits(data, "SpatialPolygonsDataFrame")) {
+    return("sp_polygon")
+  }
   NULL
 }
 
 .bru_reconstruct_spatial <- function(data, spatial_class, user_meta) {
   coord_names <- user_meta$coord_names
-  crs         <- user_meta$crs
+  crs <- user_meta$crs
 
   if (is.null(coord_names)) {
     stop(
@@ -226,15 +249,16 @@ NULL
       stop("Package 'sp' is required to serve sp inlabru models.")
     }
     coords <- as.matrix(data[, coord_names])
-    data   <- data[, setdiff(names(data), coord_names), drop = FALSE]
+    data <- data[, setdiff(names(data), coord_names), drop = FALSE]
     return(sp::SpatialPointsDataFrame(
-      coords      = coords,
-      data        = as.data.frame(data),
+      coords = coords,
+      data = as.data.frame(data),
       proj4string = .sp_crs(crs)
     ))
   }
   stop(
-    "Unsupported spatial_class '", spatial_class,
+    "Unsupported spatial_class '",
+    spatial_class,
     "' in .bru_reconstruct_spatial. Polygon / areal reconstruction is not ",
     "implemented yet.",
     call. = FALSE
@@ -256,6 +280,9 @@ NULL
     }
     return(sp::CRS(SRS_string = crs))
   }
-  stop("Unsupported `crs` value for sp reconstruction: ", toString(crs),
-       call. = FALSE)
+  stop(
+    "Unsupported `crs` value for sp reconstruction: ",
+    toString(crs),
+    call. = FALSE
+  )
 }

@@ -3,7 +3,7 @@ test_that("tidy_bru returns correct columns for fixed effects", {
 
   fe <- data.frame(
     mean = c(0.5, 1.2),
-    sd   = c(0.1, 0.2),
+    sd = c(0.1, 0.2),
     `0.025quant` = c(0.3, 0.8),
     `0.975quant` = c(0.7, 1.6),
     check.names = FALSE,
@@ -16,7 +16,10 @@ test_that("tidy_bru returns correct columns for fixed effects", {
 
   result <- tidy_bru(fake_fit)
   expect_s3_class(result, "tbl_df")
-  expect_named(result, c("term", "estimate", "std.error", "conf.low", "conf.high"))
+  expect_named(
+    result,
+    c("term", "estimate", "std.error", "conf.low", "conf.high")
+  )
   expect_equal(result$term, c("Intercept", "x1"))
   expect_equal(result$estimate, c(0.5, 1.2))
 })
@@ -29,11 +32,13 @@ test_that("tidy_bru errors on unknown effects argument", {
 test_that("glance_bru returns one-row tibble with expected columns", {
   fake_fit <- structure(
     list(
-      dic        = list(dic = 123.4),
-      waic       = list(waic = 125.0),
-      mlik       = matrix(c(-61.0, 0), nrow = 1),
-      bru_timings = data.frame(Elapsed = as.difftime(c(1.0, 2.0), units = "secs")),
-      bru_info   = list(
+      dic = list(dic = 123.4),
+      waic = list(waic = 125.0),
+      mlik = matrix(c(-61.0, 0), nrow = 1),
+      bru_timings = data.frame(
+        Elapsed = as.difftime(c(1.0, 2.0), units = "secs")
+      ),
+      bru_info = list(
         lhoods = list(
           list(family = "gaussian", data = data.frame(x = 1:15))
         )
@@ -57,19 +62,23 @@ test_that("glance_bru returns NA nobs for any multi-likelihood fit", {
   # likelihoods make the row sum meaningless.
   mixed <- structure(
     list(
-      bru_info = list(lhoods = list(
-        list(family = "gaussian", data = data.frame(x = 1:10)),
-        list(family = "poisson",  data = data.frame(x = 1:5))
-      ))
+      bru_info = list(
+        lhoods = list(
+          list(family = "gaussian", data = data.frame(x = 1:10)),
+          list(family = "poisson", data = data.frame(x = 1:5))
+        )
+      )
     ),
     class = c("bru", "inla")
   )
   same <- structure(
     list(
-      bru_info = list(lhoods = list(
-        list(family = "gaussian", data = data.frame(x = 1:10)),
-        list(family = "gaussian", data = data.frame(x = 1:5))
-      ))
+      bru_info = list(
+        lhoods = list(
+          list(family = "gaussian", data = data.frame(x = 1:10)),
+          list(family = "gaussian", data = data.frame(x = 1:5))
+        )
+      )
     ),
     class = c("bru", "inla")
   )

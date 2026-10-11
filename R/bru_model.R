@@ -26,11 +26,11 @@ bru_reg <- function(mode = "regression", family = "gaussian") {
   args <- list(family = rlang::enquo(family))
   parsnip::new_model_spec(
     "bru_reg",
-    args     = args,
+    args = args,
     eng_args = NULL,
-    mode     = mode,
-    method   = NULL,
-    engine   = NULL
+    mode = mode,
+    method = NULL,
+    engine = NULL
   )
 }
 
@@ -46,8 +46,14 @@ bru_reg <- function(mode = "regression", family = "gaussian") {
 #' Internal fit wrapper for the parsnip inlabru engine
 #' @keywords internal
 #' @export
-bru_inlaops_fit <- function(formula, data, dic = TRUE, waic = TRUE,
-                             options = NULL, ...) {
+bru_inlaops_fit <- function(
+  formula,
+  data,
+  dic = TRUE,
+  waic = TRUE,
+  options = NULL,
+  ...
+) {
   .check_bru_intercept(formula)
   .check_bru_factors(formula, data)
   if (is.null(options)) {
@@ -56,8 +62,12 @@ bru_inlaops_fit <- function(formula, data, dic = TRUE, waic = TRUE,
     )
   } else {
     cc <- options$control.compute
-    if (is.null(cc)) cc <- list()
-    if (!isTRUE(cc$config)) cc$config <- TRUE
+    if (is.null(cc)) {
+      cc <- list()
+    }
+    if (!isTRUE(cc$config)) {
+      cc$config <- TRUE
+    }
     options$control.compute <- cc
   }
   inlabru::bru(formula, data = data, options = options, ...)
@@ -68,34 +78,36 @@ bru_inlaops_fit <- function(formula, data, dic = TRUE, waic = TRUE,
 # are rejected by .bru_inverse_link; users who want a response-scale prediction
 # for an unsupported family should call inlabru::predict() directly.
 .bru_family_links <- list(
-  gaussian               = c(link = "identity", inv = "identity"),
-  poisson                = c(link = "log",      inv = "exp"),
-  nbinomial              = c(link = "log",      inv = "exp"),
-  nbinomial2             = c(link = "log",      inv = "exp"),
-  zeroinflatedpoisson0   = c(link = "log",      inv = "exp"),
-  zeroinflatedpoisson1   = c(link = "log",      inv = "exp"),
-  zeroinflatednbinomial0 = c(link = "log",      inv = "exp"),
-  zeroinflatednbinomial1 = c(link = "log",      inv = "exp"),
-  gamma                  = c(link = "log",      inv = "exp"),
-  gammasurv              = c(link = "log",      inv = "exp"),
-  exponential            = c(link = "log",      inv = "exp"),
-  exponentialsurv        = c(link = "log",      inv = "exp"),
-  weibull                = c(link = "log",      inv = "exp"),
-  weibullsurv            = c(link = "log",      inv = "exp"),
-  loggaussian            = c(link = "log",      inv = "exp"),
-  lognormal              = c(link = "log",      inv = "exp"),
-  binomial               = c(link = "logit",    inv = "plogis"),
-  betabinomial           = c(link = "logit",    inv = "plogis"),
-  zeroinflatedbinomial0  = c(link = "logit",    inv = "plogis"),
-  zeroinflatedbinomial1  = c(link = "logit",    inv = "plogis"),
-  beta                   = c(link = "logit",    inv = "plogis")
+  gaussian = c(link = "identity", inv = "identity"),
+  poisson = c(link = "log", inv = "exp"),
+  nbinomial = c(link = "log", inv = "exp"),
+  nbinomial2 = c(link = "log", inv = "exp"),
+  zeroinflatedpoisson0 = c(link = "log", inv = "exp"),
+  zeroinflatedpoisson1 = c(link = "log", inv = "exp"),
+  zeroinflatednbinomial0 = c(link = "log", inv = "exp"),
+  zeroinflatednbinomial1 = c(link = "log", inv = "exp"),
+  gamma = c(link = "log", inv = "exp"),
+  gammasurv = c(link = "log", inv = "exp"),
+  exponential = c(link = "log", inv = "exp"),
+  exponentialsurv = c(link = "log", inv = "exp"),
+  weibull = c(link = "log", inv = "exp"),
+  weibullsurv = c(link = "log", inv = "exp"),
+  loggaussian = c(link = "log", inv = "exp"),
+  lognormal = c(link = "log", inv = "exp"),
+  binomial = c(link = "logit", inv = "plogis"),
+  betabinomial = c(link = "logit", inv = "plogis"),
+  zeroinflatedbinomial0 = c(link = "logit", inv = "plogis"),
+  zeroinflatedbinomial1 = c(link = "logit", inv = "plogis"),
+  beta = c(link = "logit", inv = "plogis")
 )
 
 .bru_inverse_link <- function(family) {
   entry <- .bru_family_links[[family]]
   if (is.null(entry)) {
     stop(
-      "bru_reg: no known default inverse link for family '", family, "'. ",
+      "bru_reg: no known default inverse link for family '",
+      family,
+      "'. ",
       "Call inlabru::predict() directly with an explicit response-scale ",
       "formula.",
       call. = FALSE
@@ -108,18 +120,26 @@ bru_inlaops_fit <- function(formula, data, dic = TRUE, waic = TRUE,
 # family → inverse link; if the user passed a non-default link via
 # control.family$link, the hardcoded mapping is silently wrong, so bail.
 .check_bru_default_link <- function(fit) {
-  lhood     <- fit$bru_info$lhoods[[1]]
-  fam       <- lhood$family %||% "gaussian"
+  lhood <- fit$bru_info$lhoods[[1]]
+  fam <- lhood$family %||% "gaussian"
   user_link <- lhood$control.family$link
-  if (is.null(user_link)) return(invisible())
+  if (is.null(user_link)) {
+    return(invisible())
+  }
   entry <- .bru_family_links[[fam]]
-  if (is.null(entry)) return(invisible())  # unknown family handled elsewhere
+  if (is.null(entry)) {
+    return(invisible())
+  } # unknown family handled elsewhere
   default_link <- unname(entry["link"])
   if (!identical(as.character(user_link), default_link)) {
     stop(
-      "bru_reg's predict() assumes the default link '", default_link,
-      "' for family '", fam, "', but this fit specified link = '",
-      as.character(user_link), "'. Call inlabru::predict() directly with ",
+      "bru_reg's predict() assumes the default link '",
+      default_link,
+      "' for family '",
+      fam,
+      "', but this fit specified link = '",
+      as.character(user_link),
+      "'. Call inlabru::predict() directly with ",
       "an explicit formula on the response scale.",
       call. = FALSE
     )
@@ -149,8 +169,8 @@ bru_inlaops_fit <- function(formula, data, dic = TRUE, waic = TRUE,
 bru_pred_formula <- function(fit) {
   .check_bru_default_link(fit)
   .warn_bru_random_effects(fit)
-  fam   <- fit$bru_info$lhoods[[1]]$family %||% "gaussian"
-  inv   <- .bru_inverse_link(fam)
+  fam <- fit$bru_info$lhoods[[1]]$family %||% "gaussian"
+  inv <- .bru_inverse_link(fam)
   terms <- paste(rownames(fit$summary.fixed), collapse = " + ")
   if (identical(inv, "identity")) {
     stats::as.formula(paste0("~ ", terms))
@@ -166,7 +186,9 @@ bru_pred_formula <- function(fit) {
 # inlabru::predict() for conditional predictions.
 .warn_bru_random_effects <- function(fit) {
   re_names <- rownames(fit$summary.random)
-  if (is.null(re_names) || length(re_names) == 0L) return(invisible())
+  if (is.null(re_names) || length(re_names) == 0L) {
+    return(invisible())
+  }
   rlang::warn(
     c(
       "This bru fit has non-fixed components that parsnip's predict() cannot condition on.",
@@ -174,7 +196,7 @@ bru_pred_formula <- function(fit) {
       i = "`.pred` / `.pred_lower` / `.pred_upper` reflect only the fixed-effect linear predictor.",
       i = "For conditional predictions call inlabru::predict() directly."
     ),
-    .frequency    = "once",
+    .frequency = "once",
     .frequency_id = paste0("inlaops-re-", paste(re_names, collapse = ","))
   )
   invisible()
@@ -202,15 +224,18 @@ bru_pred_formula <- function(fit) {
   rhs_vars <- all.vars(formula[[3L]])
   vars_in_data <- intersect(rhs_vars, names(data))
   bad_vars <- vars_in_data[
-    vapply(data[vars_in_data],
-           function(col) is.factor(col) || is.character(col),
-           logical(1))
+    vapply(
+      data[vars_in_data],
+      function(col) is.factor(col) || is.character(col),
+      logical(1)
+    )
   ]
   if (length(bad_vars)) {
     stop(
       "bru_reg does not auto-encode factor or character predictors. ",
       "The following columns in `data` are factor / character: ",
-      paste(shQuote(bad_vars), collapse = ", "), ".\n",
+      paste(shQuote(bad_vars), collapse = ", "),
+      ".\n",
       "Options:\n",
       "  * Pre-encode with `recipes::step_dummy()` and `recipes::bake()` ",
       "before calling `fit()` (recipes/workflows cannot be wrapped around ",
@@ -241,18 +266,30 @@ bru_pred_formula <- function(fit) {
 #' @return A list with `q_lower` and `q_upper` numeric vectors.
 #' @keywords internal
 #' @export
-bru_predict_conf_int <- function(object, newdata, level, formula,
-                                 n.samples = 1000L) {
-  if (!is.numeric(level) || length(level) != 1L ||
-      is.na(level) || level <= 0 || level >= 1) {
-    stop("`level` must be a single number strictly between 0 and 1.",
-         call. = FALSE)
+bru_predict_conf_int <- function(
+  object,
+  newdata,
+  level,
+  formula,
+  n.samples = 1000L
+) {
+  if (
+    !is.numeric(level) ||
+      length(level) != 1L ||
+      is.na(level) ||
+      level <= 0 ||
+      level >= 1
+  ) {
+    stop(
+      "`level` must be a single number strictly between 0 and 1.",
+      call. = FALSE
+    )
   }
-  alpha   <- (1 - level) / 2
+  alpha <- (1 - level) / 2
   samples <- inlabru::generate(
     object,
-    newdata   = newdata,
-    formula   = formula,
+    newdata = newdata,
+    formula = formula,
     n.samples = n.samples
   )
   if (!is.matrix(samples) || nrow(samples) != nrow(newdata)) {
@@ -263,10 +300,20 @@ bru_predict_conf_int <- function(object, newdata, level, formula,
     )
   }
   list(
-    q_lower = unname(apply(samples, 1L, stats::quantile,
-                            probs = alpha, na.rm = TRUE)),
-    q_upper = unname(apply(samples, 1L, stats::quantile,
-                            probs = 1 - alpha, na.rm = TRUE))
+    q_lower = unname(apply(
+      samples,
+      1L,
+      stats::quantile,
+      probs = alpha,
+      na.rm = TRUE
+    )),
+    q_upper = unname(apply(
+      samples,
+      1L,
+      stats::quantile,
+      probs = 1 - alpha,
+      na.rm = TRUE
+    ))
   )
 }
 
@@ -281,7 +328,9 @@ make_bru_reg <- function() {
     "bru_reg" %in% parsnip::get_model_env()$models,
     error = function(e) FALSE
   )
-  if (registered) return(invisible())
+  if (registered) {
+    return(invisible())
+  }
 
   parsnip::set_new_model("bru_reg")
   parsnip::set_model_mode("bru_reg", "regression")
@@ -289,51 +338,51 @@ make_bru_reg <- function() {
   parsnip::set_dependency("bru_reg", eng = "inlabru", pkg = "inlabru")
 
   parsnip::set_model_arg(
-    model        = "bru_reg",
-    eng          = "inlabru",
-    parsnip      = "family",
-    original     = "family",
-    func         = list(pkg = "inlabru", fun = "bru"),
+    model = "bru_reg",
+    eng = "inlabru",
+    parsnip = "family",
+    original = "family",
+    func = list(pkg = "inlabru", fun = "bru"),
     has_submodel = FALSE
   )
 
   parsnip::set_encoding(
-    model   = "bru_reg",
-    eng     = "inlabru",
-    mode    = "regression",
+    model = "bru_reg",
+    eng = "inlabru",
+    mode = "regression",
     options = list(
       predictor_indicators = "none",
-      compute_intercept    = FALSE,
-      remove_intercept     = FALSE,
-      allow_sparse_x       = FALSE
+      compute_intercept = FALSE,
+      remove_intercept = FALSE,
+      allow_sparse_x = FALSE
     )
   )
 
   parsnip::set_fit(
     model = "bru_reg",
-    eng   = "inlabru",
-    mode  = "regression",
+    eng = "inlabru",
+    mode = "regression",
     value = list(
       interface = "formula",
-      protect   = c("formula", "data"),
-      func      = c(pkg = "inlaops", fun = "bru_inlaops_fit"),
+      protect = c("formula", "data"),
+      func = c(pkg = "inlaops", fun = "bru_inlaops_fit"),
       # dic/waic defaults live on bru_inlaops_fit so users can override via
       # set_engine("inlabru", dic = FALSE, waic = FALSE).
-      defaults  = list()
+      defaults = list()
     )
   )
 
   parsnip::set_pred(
     model = "bru_reg",
-    eng   = "inlabru",
-    mode  = "regression",
-    type  = "numeric",
+    eng = "inlabru",
+    mode = "regression",
+    type = "numeric",
     value = list(
-      pre  = NULL,
+      pre = NULL,
       post = function(result, object) tibble::tibble(.pred = result$mean),
       func = c(fun = "predict"),
       args = list(
-        object  = quote(object$fit),
+        object = quote(object$fit),
         newdata = quote(new_data),
         formula = quote(inlaops::bru_pred_formula(object$fit))
       )
@@ -346,20 +395,22 @@ make_bru_reg <- function() {
   # the interval they asked for, not a hardcoded 95%.
   parsnip::set_pred(
     model = "bru_reg",
-    eng   = "inlabru",
-    mode  = "regression",
-    type  = "conf_int",
+    eng = "inlabru",
+    mode = "regression",
+    type = "conf_int",
     value = list(
-      pre  = NULL,
-      post = function(result, object) tibble::tibble(
-        .pred_lower = result$q_lower,
-        .pred_upper = result$q_upper
-      ),
+      pre = NULL,
+      post = function(result, object) {
+        tibble::tibble(
+          .pred_lower = result$q_lower,
+          .pred_upper = result$q_upper
+        )
+      },
       func = c(pkg = "inlaops", fun = "bru_predict_conf_int"),
       args = list(
-        object  = quote(object$fit),
+        object = quote(object$fit),
         newdata = quote(new_data),
-        level   = quote(level),
+        level = quote(level),
         formula = quote(inlaops::bru_pred_formula(object$fit))
       )
     )

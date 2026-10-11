@@ -6,19 +6,21 @@ library(inlabru)
 # ── shared fixtures ────────────────────────────────────────────────────────────
 
 set.seed(42)
-n   <- 100
+n <- 100
 dat <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
 dat$y <- 2 + 0.8 * dat$x1 - 0.4 * dat$x2 + rnorm(n, sd = 0.5)
 
-idx     <- sample(n, 20)
+idx <- sample(n, 20)
 holdout <- dat[idx, ]
-train   <- dat[-idx, ]
+train <- dat[-idx, ]
 
 fit <- bru(
   y ~ Intercept(1) + x1 + x2,
-  family  = "gaussian",
-  data    = train,
-  options = bru_options(control.compute = list(config = TRUE, dic = TRUE, waic = TRUE))
+  family = "gaussian",
+  data = train,
+  options = bru_options(
+    control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)
+  )
 )
 
 # ── tidy ───────────────────────────────────────────────────────────────────────
@@ -26,7 +28,10 @@ fit <- bru(
 test_that("tidy_bru returns fixed effects with correct structure", {
   result <- tidy(fit)
   expect_s3_class(result, "tbl_df")
-  expect_named(result, c("term", "estimate", "std.error", "conf.low", "conf.high"))
+  expect_named(
+    result,
+    c("term", "estimate", "std.error", "conf.low", "conf.high")
+  )
   expect_equal(nrow(result), 3L)
   expect_equal(result$term, c("Intercept", "x1", "x2"))
   expect_true(all(result$conf.low < result$estimate))
@@ -36,7 +41,10 @@ test_that("tidy_bru returns fixed effects with correct structure", {
 test_that("tidy_bru returns hyperparameters", {
   result <- tidy(fit, effects = "hyperpar")
   expect_s3_class(result, "tbl_df")
-  expect_named(result, c("term", "estimate", "std.error", "conf.low", "conf.high"))
+  expect_named(
+    result,
+    c("term", "estimate", "std.error", "conf.low", "conf.high")
+  )
   expect_gte(nrow(result), 1L)
   expect_true(all(result$conf.low < result$estimate))
   expect_true(all(result$estimate < result$conf.high))
@@ -44,9 +52,9 @@ test_that("tidy_bru returns hyperparameters", {
 
 test_that("tidy_bru estimates are near true values", {
   result <- tidy(fit)
-  expect_equal(result$estimate[result$term == "Intercept"], 2,   tolerance = 0.2)
-  expect_equal(result$estimate[result$term == "x1"],        0.8, tolerance = 0.2)
-  expect_equal(result$estimate[result$term == "x2"],       -0.4, tolerance = 0.2)
+  expect_equal(result$estimate[result$term == "Intercept"], 2, tolerance = 0.2)
+  expect_equal(result$estimate[result$term == "x1"], 0.8, tolerance = 0.2)
+  expect_equal(result$estimate[result$term == "x2"], -0.4, tolerance = 0.2)
 })
 
 # ── glance ─────────────────────────────────────────────────────────────────────
@@ -70,7 +78,9 @@ test_that("augment_bru adds fitted columns to data", {
   result <- augment(fit, data = holdout, pred_formula = ~ Intercept + x1 + x2)
   expect_s3_class(result, "tbl_df")
   expect_equal(nrow(result), nrow(holdout))
-  expect_true(all(c(".fitted", ".fitted_low", ".fitted_high", ".fitted_sd") %in% names(result)))
+  expect_true(all(
+    c(".fitted", ".fitted_low", ".fitted_high", ".fitted_sd") %in% names(result)
+  ))
   expect_true(all(result$.fitted_low < result$.fitted))
   expect_true(all(result$.fitted < result$.fitted_high))
   expect_true(all(result$.fitted_sd > 0))
@@ -167,7 +177,7 @@ test_that("bru_score returns one row per holdout observation", {
   y_formula <- ~ rnorm(
     length(x1),
     mean = Intercept + x1 + x2,
-    sd   = 0.5
+    sd = 0.5
   )
   result <- bru_score(fit, holdout, y_formula, "y", n_samples = 200L)
   expect_s3_class(result, "tbl_df")
@@ -184,24 +194,30 @@ test_that("bru_score detects better-specified model", {
 
   fit_reduced <- bru(
     y ~ Intercept(1) + x1,
-    family  = "gaussian",
-    data    = train,
+    family = "gaussian",
+    data = train,
     options = bru_options(control.compute = list(config = TRUE))
   )
 
   y_full <- ~ rnorm(
     length(x1),
     mean = Intercept + x1 + x2,
-    sd   = 0.5
+    sd = 0.5
   )
   y_reduced <- ~ rnorm(
     length(x1),
     mean = Intercept + x1,
-    sd   = 0.5
+    sd = 0.5
   )
 
-  scores_full    <- bru_score(fit,         holdout, y_full,    "y", n_samples = 200L)
-  scores_reduced <- bru_score(fit_reduced, holdout, y_reduced, "y", n_samples = 200L)
+  scores_full <- bru_score(fit, holdout, y_full, "y", n_samples = 200L)
+  scores_reduced <- bru_score(
+    fit_reduced,
+    holdout,
+    y_reduced,
+    "y",
+    n_samples = 200L
+  )
 
   expect_lt(mean(scores_full$crps), mean(scores_reduced$crps))
 })
@@ -214,25 +230,25 @@ test_that("vetiver predict handler end-to-end: compile + predict + response shap
   v <- vetiver::vetiver_model(fit, "handler_test")
   v$metadata$user <- list(
     pred_formula = "~ Intercept + x1 + x2",
-    n_samples    = 100L
+    n_samples = 100L
   )
 
   # .handler_predict_bru is called by plumber once at API setup; simulate
   # that and invoke the returned per-request closure with a mock request.
-  handler <- inlaops:::.handler_predict_bru(v)
+  handler <- .handler_predict_bru(v)
   expect_type(handler, "closure")
 
   # plumber hands the handler a parsed body via req$body.
   mock_req <- list(body = holdout[seq_len(5), c("x1", "x2")])
-  resp     <- handler(mock_req)
+  resp <- handler(mock_req)
 
   expect_s3_class(resp, "tbl_df")
   expect_named(resp, c(".pred", ".pred_low", ".pred_high", ".pred_sd"))
   expect_equal(nrow(resp), 5L)
   expect_true(all(is.finite(resp$.pred)))
-  expect_true(all(resp$.pred_low  < resp$.pred))
-  expect_true(all(resp$.pred      < resp$.pred_high))
-  expect_true(all(resp$.pred_sd   > 0))
+  expect_true(all(resp$.pred_low < resp$.pred))
+  expect_true(all(resp$.pred < resp$.pred_high))
+  expect_true(all(resp$.pred_sd > 0))
 })
 
 test_that("vetiver predict handler rejects non-formula pred_formula at setup", {
@@ -241,11 +257,11 @@ test_that("vetiver predict handler rejects non-formula pred_formula at setup", {
   v <- vetiver::vetiver_model(fit, "handler_evil")
   v$metadata$user <- list(
     pred_formula = "system('rm -rf /')",
-    n_samples    = 100L
+    n_samples = 100L
   )
 
   # Should fail at handler *setup*, not at the first request.
-  expect_error(inlaops:::.handler_predict_bru(v), "formula expression")
+  expect_error(.handler_predict_bru(v), "formula expression")
 })
 
 test_that("vetiver handler round-trip works for sf spatial data", {
@@ -259,27 +275,27 @@ test_that("vetiver handler round-trip works for sf spatial data", {
   sf_df <- data.frame(
     lon = runif(50, 10, 11),
     lat = runif(50, 59, 60),
-    x1  = rnorm(50)
+    x1 = rnorm(50)
   )
-  sf_df$y  <- 1 + 0.5 * sf_df$x1 + rnorm(50, sd = 0.3)
+  sf_df$y <- 1 + 0.5 * sf_df$x1 + rnorm(50, sd = 0.3)
   sf_train <- sf::st_as_sf(sf_df, coords = c("lon", "lat"), crs = 4326)
 
   fit_sf <- bru(
     y ~ Intercept(1) + x1,
-    family  = "gaussian",
-    data    = sf_train,
+    family = "gaussian",
+    data = sf_train,
     options = bru_options(control.compute = list(config = TRUE))
   )
 
   v <- vetiver::vetiver_model(fit_sf, "handler_spatial")
   v$metadata$user <- list(
     pred_formula = "~ Intercept + x1",
-    n_samples    = 100L,
-    coord_names  = c("lon", "lat"),
-    crs          = 4326L
+    n_samples = 100L,
+    coord_names = c("lon", "lat"),
+    crs = 4326L
   )
 
-  handler <- inlaops:::.handler_predict_bru(v)
+  handler <- .handler_predict_bru(v)
 
   # plumber would deliver req$body as parsed JSON — a plain data frame with
   # `lon`, `lat`, and `x1` columns. The handler must reconstruct the sf
@@ -287,7 +303,7 @@ test_that("vetiver handler round-trip works for sf spatial data", {
   req_body <- data.frame(
     lon = c(10.5, 10.7),
     lat = c(59.5, 59.6),
-    x1  = c(0.0, 1.0)
+    x1 = c(0.0, 1.0)
   )
   resp <- handler(list(body = req_body))
 
@@ -308,7 +324,7 @@ test_that("vetiver_model wraps bru fit and pins correctly", {
 
   v$metadata$user <- list(
     pred_formula = "~ Intercept + x1 + x2",
-    n_samples    = 100L
+    n_samples = 100L
   )
 
   board <- pins::board_temp()
@@ -328,15 +344,15 @@ test_that("spatial sf vetiver model pins and round-trips through the handler", {
   sf_df <- data.frame(
     lon = runif(40, 10, 11),
     lat = runif(40, 59, 60),
-    x1  = rnorm(40)
+    x1 = rnorm(40)
   )
-  sf_df$y  <- 1 + 0.5 * sf_df$x1 + rnorm(40, sd = 0.3)
+  sf_df$y <- 1 + 0.5 * sf_df$x1 + rnorm(40, sd = 0.3)
   sf_train <- sf::st_as_sf(sf_df, coords = c("lon", "lat"), crs = 4326)
 
   fit_sf <- bru(
     y ~ Intercept(1) + x1,
-    family  = "gaussian",
-    data    = sf_train,
+    family = "gaussian",
+    data = sf_train,
     options = bru_options(control.compute = list(config = TRUE))
   )
 
@@ -345,12 +361,14 @@ test_that("spatial sf vetiver model pins and round-trips through the handler", {
   # directly keeps this independent of vetiver's storage layout (`v$ptype`
   # vs `v$prototype` has changed across vetiver versions). What matters is
   # that whatever vetiver stores comes from this function.
-  spatial_class <- inlaops:::.bru_detect_spatial_class(
+  spatial_class <- .bru_detect_spatial_class(
     fit_sf$bru_info$lhoods[[1]]$data
   )
-  expect_true(identical(spatial_class, "sf_point") ||
-              identical(spatial_class, "sp_point"))
-  ptype <- inlaops:::.vetiver_ptype_bru(fit_sf)
+  expect_true(
+    identical(spatial_class, "sf_point") ||
+      identical(spatial_class, "sp_point")
+  )
+  ptype <- .vetiver_ptype_bru(fit_sf)
   expect_true("x1" %in% names(ptype))
   # Coord column names depend on whether inlabru kept sf (X, Y) or converted
   # to sp (whatever the user named them). Either is fine — assert >= 2
@@ -364,9 +382,9 @@ test_that("spatial sf vetiver model pins and round-trips through the handler", {
   v <- vetiver::vetiver_model(fit_sf, "sf_roundtrip")
   v$metadata$user <- list(
     pred_formula = "~ Intercept + x1",
-    n_samples    = 100L,
-    coord_names  = coord_cols,
-    crs          = 4326L
+    n_samples = 100L,
+    coord_names = coord_cols,
+    crs = 4326L
   )
 
   board <- pins::board_temp()
@@ -376,10 +394,10 @@ test_that("spatial sf vetiver model pins and round-trips through the handler", {
   # After pin_read, metadata$user round-trips via YAML; the handler must
   # re-parse the formula string and rebuild the spatial object from the
   # JSON body using whichever coord_cols the ptype advertised.
-  handler <- inlaops:::.handler_predict_bru(v_read)
-  body    <- data.frame(c(10.3, 10.7), c(59.3, 59.7), c(-0.5, 0.8))
+  handler <- .handler_predict_bru(v_read)
+  body <- data.frame(c(10.3, 10.7), c(59.3, 59.7), c(-0.5, 0.8))
   names(body) <- c(coord_cols, "x1")
-  resp    <- handler(list(body = body))
+  resp <- handler(list(body = body))
 
   expect_s3_class(resp, "tbl_df")
   expect_equal(nrow(resp), 2L)
@@ -409,7 +427,7 @@ test_that("vetiver_prepare_model rejects polygon sf fits end-to-end", {
     class = c("bru", "inla")
   )
   expect_error(
-    inlaops:::.vetiver_prepare_model_bru(fake),
+    .vetiver_prepare_model_bru(fake),
     "areal"
   )
 })
@@ -428,10 +446,10 @@ test_that("parsnip fit can be served via vetiver after manual unwrap", {
   v <- vetiver::vetiver_model(fit_p$fit, "parsnip_handler_test")
   v$metadata$user <- list(
     pred_formula = "~ Intercept + x1 + x2",
-    n_samples    = 100L
+    n_samples = 100L
   )
 
-  handler <- inlaops:::.handler_predict_bru(v)
+  handler <- .handler_predict_bru(v)
   expect_type(handler, "closure")
 
   resp <- handler(list(body = holdout[seq_len(3), c("x1", "x2")]))

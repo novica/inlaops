@@ -41,9 +41,17 @@
 #' @return A tibble with columns `.truth`, `.pred`, `.pred_low`,
 #'   `.pred_high`, `.pred_sd`.
 #' @export
-bru_cv_predict <- function(formula, family, data, v = 5L,
-                            pred_formula, n_samples = 500L,
-                            seed = NULL, strata = NULL, ...) {
+bru_cv_predict <- function(
+  formula,
+  family,
+  data,
+  v = 5L,
+  pred_formula,
+  n_samples = 500L,
+  seed = NULL,
+  strata = NULL,
+  ...
+) {
   if (!requireNamespace("rsample", quietly = TRUE)) {
     stop("Package 'rsample' is required for bru_cv_predict().")
   }
@@ -66,7 +74,12 @@ bru_cv_predict <- function(formula, family, data, v = 5L,
   bru_extra <- list(...)
   results <- lapply(folds$splits, function(split) {
     .bru_cv_fit_fold(
-      split, formula, family, pred_formula, n_samples, bru_extra
+      split,
+      formula,
+      family,
+      pred_formula,
+      n_samples,
+      bru_extra
     )
   })
 
@@ -74,10 +87,16 @@ bru_cv_predict <- function(formula, family, data, v = 5L,
 }
 
 # Fit one CV fold and return a tibble of holdout predictions.
-.bru_cv_fit_fold <- function(split, formula, family, pred_formula, n_samples,
-                              bru_extra = list()) {
+.bru_cv_fit_fold <- function(
+  split,
+  formula,
+  family,
+  pred_formula,
+  n_samples,
+  bru_extra = list()
+) {
   train <- rsample::analysis(split)
-  test  <- rsample::assessment(split)
+  test <- rsample::assessment(split)
 
   # bru_inlaops_fit ensures config = TRUE survives whether or not the caller
   # supplies options, so we just forward bru_extra as-is.
@@ -89,16 +108,16 @@ bru_cv_predict <- function(formula, family, data, v = 5L,
 
   preds <- stats::predict(
     fit,
-    newdata   = test,
-    formula   = pred_formula,
+    newdata = test,
+    formula = pred_formula,
     n.samples = n_samples
   )
 
   tibble::tibble(
-    .truth     = test[[all.vars(formula)[1]]],
-    .pred      = preds$mean,
-    .pred_low  = preds$q0.025,
+    .truth = test[[all.vars(formula)[1]]],
+    .pred = preds$mean,
+    .pred_low = preds$q0.025,
     .pred_high = preds$q0.975,
-    .pred_sd   = preds$sd
+    .pred_sd = preds$sd
   )
 }
