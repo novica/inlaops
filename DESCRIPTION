@@ -1,0 +1,51 @@
+Package: inlaops
+Title: Deployment, Versioning and Scoring Tools for 'inlabru' Models
+Version: 0.1.0
+Authors@R: c(
+    person("Novica", "Nakov", , "nnovica@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0009-0005-7773-7718"))
+  )
+Description: Serves Bayesian spatial and latent Gaussian models fit with
+    inlabru as versioned REST APIs. Includes a vetiver bridge (versioning,
+    REST API serving with posterior uncertainty, Docker packaging) for 'bru'
+    objects, a parsnip model constructor scoped to fixed-effects models, and
+    proper scoring rule helpers via inlabru::generate().
+License: Apache License (>= 2)
+URL: https://github.com/novica/inlaops, https://novica.github.io/inlaops/
+BugReports: https://github.com/novica/inlaops/issues
+Additional_repositories: https://inla.r-inla-download.org/R/stable
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Imports:
+    dplyr,
+    inlabru (>= 2.15.0),
+    rlang,
+    tibble
+Suggests:
+    broom,
+    callr,
+    fmesher,
+    ggplot2,
+    hardhat,
+    httpuv,
+    httr2,
+    INLA,
+    jsonlite,
+    knitr,
+    parsnip,
+    pins,
+    plumber,
+    purrr,
+    recipes,
+    rsample,
+    scoringRules,
+    sf,
+    testthat (>= 3.0.0),
+    vetiver,
+    yardstick,
+    quarto
+Enhances:
+    sp
+VignetteBuilder: quarto
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0
