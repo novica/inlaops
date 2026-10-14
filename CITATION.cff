@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "inlaops: Deployment, Versioning and Scoring Tools for inlabru Models"
+abstract: >-
+  Serves Bayesian spatial and latent Gaussian models fit with inlabru as
+  versioned REST APIs. Includes a vetiver bridge (versioning, REST API
+  serving with posterior uncertainty, Docker packaging) for bru objects, a
+  parsnip model constructor scoped to fixed-effects models, and proper
+  scoring rule helpers via inlabru::generate().
+authors:
+  - family-names: "Nakov"
+    given-names: "Novica"
+    email: nnovica@gmail.com
+    orcid: "https://orcid.org/0009-0005-7773-7718"
+version: 0.1.0 # x-release-please-version
+date-released: 2026-10-14
+license: Apache-2.0
+url: "https://novica.github.io/inlaops/"
+repository-code: "https://github.com/novica/inlaops"

@@ -1,0 +1,277 @@
+---
+title: "Versioning and serving inlabru models with vetiver"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Versioning and serving inlabru models with vetiver}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+# Evaluated wherever INLA and the serving stack are installed (CI and
+# development machines); rendered as static code elsewhere.
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = all(vapply(
+    c("INLA", "vetiver", "pins", "plumber", "callr", "httr2", "yardstick"),
+    requireNamespace, logical(1), quietly = TRUE
+  ))
+)
+```
+
+inlaops registers six S3 methods against the `"bru"` class so that
+`vetiver_model()` works with inlabru fits out of the box — the same way it
+works with `lm()` or `mgcv::gam()`. This vignette walks through the full
+workflow: fitting, pinning, serving over HTTP, and monitoring.
+
+## Prerequisites
+
+```{r, message = FALSE}
+library(inlabru)
+library(vetiver)
+library(pins)
+library(plumber)
+library(inlaops)
+```
+
+## 1. Fit a model
+
+Always set `config = TRUE` so that the fit stores the posterior
+configurations needed for sampling at the `/predict` endpoint.
+
+```{r}
+set.seed(42)
+n   <- 200
+dat <- data.frame(
+  x1 = rnorm(n),
+  x2 = rnorm(n)
+)
+dat$y <- 2 + 0.8 * dat$x1 - 0.4 * dat$x2 + rnorm(n, sd = 0.5)
+
+fit <- bru(
+  y ~ Intercept(1) + x1 + x2,
+  family  = "gaussian",
+  data    = dat,
+  options = bru_options(
+    control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)
+  )
+)
+```
+
+## 2. Wrap with vetiver
+
+`vetiver_model()` dispatches on the `"bru"` class. inlaops provides the
+description, metadata, and input prototype (the predictor columns a
+request must carry) automatically.
+
+The prediction formula goes into the pin metadata as a **character
+string** — R expressions do not survive the YAML metadata round-trip. The
+API parses it once when it starts. Training-time fit criteria (WAIC, DIC)
+can ride along for monitoring later.
+
+```{r}
+v <- vetiver_model(
+  fit, "gaussian_glm",
+  metadata = list(
+    pred_formula = "~ Intercept + x1 + x2",
+    n_samples    = 200L,   # posterior samples per request; 200 is the default
+    waic         = fit$waic$waic,
+    dic          = fit$dic$dic
+  )
+)
+v
+v$prototype
+```
+
+### Aside — parsnip-fitted models
+
+If you fit via `parsnip::fit()` instead of `inlabru::bru()` directly, pass
+the inner bru fit to `vetiver_model()`. The bridge does not auto-unwrap
+parsnip's `model_fit`:
+
+```{r, eval = FALSE}
+fit_p <- bru_reg(family = "gaussian") |>
+  parsnip::set_engine("inlabru") |>
+  parsnip::fit(y ~ Intercept(1) + x1 + x2, data = dat)
+
+v_parsnip <- vetiver_model(
+  fit_p$fit, "gaussian_glm",   # note: fit_p$fit
+  metadata = list(pred_formula = "~ Intercept + x1 + x2")
+)
+```
+
+## 3. Pin to a versioned board
+
+```{r}
+board <- board_temp()   # swap for board_s3(), board_connect(), etc.
+vetiver_pin_write(board, v)
+
+pin_versions(board, "gaussian_glm")
+```
+
+## 4. Serve the API and call it
+
+In production the API runs on its own (see `vignette("docker")`). Locally
+you would run this in a separate R session; it blocks until stopped:
+
+```{r, eval = FALSE}
+pr() |>
+  vetiver_api(v) |>
+  pr_run(port = 8088)
+```
+
+To keep this vignette self-contained we start the same API in a
+background R process instead. It reads the model back from the pin
+board, as a deployed API would:
+
+```{r}
+port <- httpuv::randomPort()
+
+server <- callr::r_bg(
+  function(board_path, port) {
+    library(inlaops)
+    v <- vetiver::vetiver_pin_read(pins::board_folder(board_path), "gaussian_glm")
+    plumber::pr() |> vetiver::vetiver_api(v) |> plumber::pr_run(port = port)
+  },
+  args = list(board_path = board$path, port = port)
+)
+
+# Wait until the API answers its health check.
+for (i in 1:60) {
+  up <- tryCatch(
+    {
+      httr2::request(sprintf("http://127.0.0.1:%d/ping", port)) |>
+        httr2::req_perform()
+      TRUE
+    },
+    error = function(e) FALSE
+  )
+  if (up || !server$is_alive()) break
+  Sys.sleep(1)
+}
+stopifnot(up)
+```
+
+Any HTTP client can now ask for predictions. From R, vetiver's own client
+sends a data frame and returns a tibble:
+
+```{r}
+endpoint <- vetiver_endpoint(sprintf("http://127.0.0.1:%d/predict", port))
+
+new_obs <- data.frame(x1 = c(0.5, -1.2), x2 = c(1.0, 0.3))
+predict(endpoint, new_obs)
+```
+
+The response carries the posterior mean (`.pred`), the 2.5th and 97.5th
+posterior quantiles (`.pred_low`, `.pred_high`), and the posterior
+standard deviation (`.pred_sd`) — not just a point estimate, so
+downstream consumers can propagate predictive uncertainty. The true
+means here are 2 + 0.8 x1 − 0.4 x2: 2.0 and 0.92.
+
+Callers outside R send the same rows as JSON:
+
+```sh
+curl -X POST http://127.0.0.1:8088/predict \
+  -H "Content-Type: application/json" \
+  -d '[{"x1": 0.5, "x2": 1.0}, {"x1": -1.2, "x2": 0.3}]'
+```
+
+Requests are checked against the input prototype, so a body missing a
+predictor column is rejected:
+
+```{r}
+try(predict(endpoint, data.frame(x1 = 0.5)))
+```
+
+```{r}
+server$kill()
+```
+
+For packaging the model into a container, see `vignette("docker")`.
+
+## 5. Track model quality across versions
+
+INLA-specific fit metrics (WAIC, DIC) cannot be recomputed from a live
+endpoint — they are only available at training time. They were stored as
+pin metadata above; read them back per version for longitudinal
+monitoring:
+
+```{r}
+versions <- pin_versions(board, "gaussian_glm")
+
+do.call(rbind, lapply(versions$version, function(ver) {
+  meta <- pin_meta(board, "gaussian_glm", version = ver)
+  data.frame(version = ver, waic = meta$user$waic, dic = meta$user$dic)
+}))
+```
+
+Standard prediction-drift monitoring uses `vetiver_compute_metrics()`
+against the `.pred` column, the same as any other vetiver model. Drift
+monitoring is time-windowed, so the input data needs a timestamp column.
+In a real deployment this comes from the time you collected each
+observation — here we synthesise one:
+
+```{r}
+monitoring_data <- dat  # in production: observations collected since deployment
+monitoring_data$.pred <- inlabru::generate(
+  fit, newdata = monitoring_data,
+  formula = ~ Intercept + x1 + x2, n.samples = 500
+) |> rowMeans()
+
+# Synthetic timestamps for the example. Replace with real collection times.
+monitoring_data$obs_date <- seq.Date(
+  from       = as.Date("2026-01-01"),
+  by         = "day",
+  length.out = nrow(monitoring_data)
+)
+
+metrics_board <- board_temp()
+
+new_metrics <- vetiver_compute_metrics(
+  monitoring_data,
+  date_var = obs_date,
+  period   = "week",
+  truth    = y,
+  estimate = .pred
+)
+
+# vetiver_pin_metrics() appends to an existing metrics pin — the first time
+# you record metrics, write the pin directly with pins::pin_write(). On
+# subsequent runs (e.g. weekly cron jobs), use vetiver_pin_metrics() so each
+# new window's rows are appended without overwriting history.
+if ("gaussian_glm_metrics" %in% pins::pin_list(metrics_board)) {
+  vetiver_pin_metrics(metrics_board, new_metrics, "gaussian_glm_metrics")
+} else {
+  pins::pin_write(metrics_board, new_metrics, "gaussian_glm_metrics")
+}
+
+head(pins::pin_read(metrics_board, "gaussian_glm_metrics"))
+```
+
+`period` is the rolling window — `"day"`, `"week"`, `"month"`, etc. Pick
+the cadence that matches how often new observations arrive in production.
+`vetiver_plot_metrics()` draws the pinned metrics over time.
+
+## Pins board options
+
+| Board | Use case |
+|---|---|
+| `board_temp()` / `board_folder()` | Local development and testing |
+| `board_s3()` | AWS-hosted teams |
+| `board_azure()` | Azure-hosted teams |
+| `board_connect()` | Posit Connect |
+
+## Multi-likelihood models
+
+The input prototype comes from the **first** likelihood's data, and the
+API predicts from that likelihood. For models with multiple `bru_obs()`
+calls, supply the prototype manually via `save_prototype`:
+
+```{r, eval = FALSE}
+v <- vetiver_model(
+  fit,
+  "multi_lhood_model",
+  save_prototype = tibble::tibble(x1 = 0, x2 = 0)
+)
+```

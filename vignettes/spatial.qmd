@@ -1,0 +1,316 @@
+---
+title: "Spatial models: scope and limitations"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Spatial models: scope and limitations}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+This vignette states clearly what inlaops supports for spatial inlabru
+models and what it does not. Understanding this boundary prevents misuse.
+
+## What works
+
+### vetiver bridge — supported with spatial metadata
+
+The `/predict` endpoint serves point-geometry spatial fits — `sf` POINT
+data, `sp::SpatialPointsDataFrame` data, and SPDE meshes built from
+either. Serialising, versioning, and pinning work for any in-scope `bru`
+object. The handler reconstructs the spatial object from the JSON request
+body, so two extra fields in `metadata$user` are required:
+
+- `coord_names`: character vector of the coordinate column names that the
+  request body will carry. **For sf fits, these are the names returned by
+  `sf::st_coordinates(fit_data)` — typically `c("X", "Y")`. sf does not
+  preserve the original `lon/lat`-style names you used at construction
+  time.** For sp fits, these are whatever names `sp::coordinates(fit_data)`
+  returns (which usually do match the originals).
+- `crs`: EPSG integer, EPSG-style digit string, or WKT string. The handler
+  passes it through to `sf::st_as_sf(..., crs = crs)` or `sp::CRS(...)`.
+
+### LGCP intensity surfaces
+
+LGCP fits (`family = "cp"`) are served the same way as any other spatial
+point fit: the user passes query locations, the pred_formula evaluates
+the intensity surface (`~ exp(Intercept + field)`), and the handler
+returns posterior intensity samples at the query points. The output
+columns describe a posterior summary, not specifically Y, so the same
+`/predict` contract works — the values are just intensity rather than
+counts. See `vignette("lgcp")` for a full worked example.
+
+### Out-of-scope for the bridge (rejected at pin time)
+
+`.vetiver_prepare_model_bru()` errors before pinning if the fit's
+likelihood data is incompatible with the point-reconstruction handler:
+
+- **Polygon / areal geometry** (`sf` polygon, `sp::SpatialPolygonsDataFrame`).
+  The bridge does not yet support areal-lookup serving (planned: pin the
+  polygon set separately, request body carries an area ID, handler joins).
+
+If you hit the rejection and need vetiver versioning anyway, fit the
+model and write your own plumber handler that calls `inlabru::predict()`
+— vetiver will still pin and version the fit object. The custom-plumber
+pattern in `vignette("lgcp")` (section 3) applies just as well to
+areal/polygon fits today.
+
+### Areal lookup — planned
+
+When polygon / areal serving lands, the design will be:
+
+- Pin the polygon set (an `sf` polygon column or `SpatialPolygonsDataFrame`)
+  separately on the same board, e.g. as `wildlife_polygons`.
+- Reference it from the model's `metadata$user`:
+
+  ```r
+  v$metadata$user <- list(
+    pred_formula = "~ exp(Intercept + field)",
+    n_samples    = 200L,
+    area_id      = "muni_code",          # request column with the area ID
+    polygons_pin = "wildlife_polygons"   # pin name on the same board
+  )
+  ```
+
+- The handler reads the polygon set once at startup via `pins::pin_read()`,
+  joins each request row's `area_id` to the matching polygon, and calls
+  `inlabru::predict()` on the assembled `sf` object.
+- The wire contract becomes one ID column + the model covariates, instead
+  of coordinates. No client-side geometry serialisation.
+
+This pattern handles BYM2 and similar areal models without dragging
+polygon WKT through every request body. It is not implemented yet — see
+the [areal serving issue](https://github.com/novica/inlaops/issues). For now, the
+custom-plumber pattern in `vignette("lgcp")` covers the same use case.
+
+```{r}
+library(inlabru)
+library(INLA)
+library(sp)
+library(inlaops)
+library(vetiver)
+library(pins)
+
+# Synthesise some toy point data on a 10x10 domain. In a real application
+# obs_sp comes from your sampling effort.
+set.seed(2026)
+n_obs  <- 60
+obs_df <- data.frame(
+  x = runif(n_obs, 0, 10),
+  y = runif(n_obs, 0, 10)
+)
+obs_df$value <- 1 + 0.3 * obs_df$x + rnorm(n_obs, sd = 0.5)
+obs_sp <- sp::SpatialPointsDataFrame(
+  coords      = obs_df[, c("x", "y")],
+  data        = data.frame(y = obs_df$value),
+  proj4string = sp::CRS(SRS_string = "EPSG:32632")
+)
+
+# Build mesh and SPDE component (fmesher::fm_mesh_2d_inla replaces the
+# deprecated INLA::inla.mesh.2d in inlabru >= 2.12).
+mesh  <- fmesher::fm_mesh_2d_inla(
+  loc.domain = cbind(c(0, 10, 10, 0), c(0, 0, 10, 10)),
+  max.edge   = c(1, 3)
+)
+spde  <- inla.spde2.pcmatern(mesh, prior.range = c(3, 0.5),
+                                   prior.sigma  = c(1, 0.01))
+
+# Fit a spatial Gaussian model. inlabru >= 2.12 uses bru_obs() in place
+# of the deprecated like().
+cmp <- ~ field(coordinates, model = spde) + Intercept(1)
+fit <- bru(
+  cmp,
+  bru_obs(formula = y ~ ., family = "gaussian", data = obs_sp),
+  options = bru_options(control.compute = list(config = TRUE))
+)
+
+# Wrap and pin. coord_names and crs are required for the /predict endpoint.
+# Pass metadata at construction so it is in place before vetiver_api() runs.
+v <- vetiver_model(
+  fit, "spatial_gaussian",
+  metadata = list(
+    pred_formula = "~ Intercept + field",
+    n_samples    = 500L,
+    coord_names  = c("x", "y"),   # column names in obs_sp that hold coordinates
+    crs          = 32632           # EPSG code; use NA if data has no CRS
+  )
+)
+board <- board_temp()
+vetiver_pin_write(board, v)
+```
+
+The `/predict` endpoint reconstructs an `sp` or `sf` object from the incoming
+JSON using `coord_names` and `crs`, then passes it to `predict.bru()`, which
+handles the SPDE mesh projection internally. The prediction formula controls
+what is returned — linear predictor, response scale, or any derived quantity.
+
+If `coord_names` is not supplied and a spatial model is detected, the handler
+will error with a message explaining what to add to `metadata$user`.
+
+### broom tidiers — supported for the fixed part
+
+`tidy()` (provided by inlabru >= 2.15.0) extracts fixed effects and
+hyperparameters. For spatial models,
+the hyperparameters include SPDE range and marginal variance:
+
+```{r}
+tidy(fit, effects = "fixed")
+#> # A tibble: 1 × 5
+#>   term      estimate std.error conf.low conf.high
+#>   <chr>        <dbl>     <dbl>    <dbl>     <dbl>
+#> 1 Intercept    1.84      0.312     1.23      2.45
+
+tidy(fit, effects = "hyperpar")
+#> # A tibble: 3 × 5
+#>   term                           estimate std.error conf.low conf.high
+#>   <chr>                             <dbl>     <dbl>    <dbl>     <dbl>
+#> 1 Range for field                    4.21      0.82     2.88      6.02
+#> 2 Stdev for field                    1.03      0.18     0.72      1.43
+#> 3 Precision for the obs. noise       4.08      0.41     3.31      4.90
+
+glance(fit)
+#> # A tibble: 1 × 5
+#>     dic  waic marginal_loglik  nobs elapsed
+#>   <dbl> <dbl>           <dbl> <int>   <dbl>
+#> 1 1123.  1127.           -563.   200    3.41
+```
+
+`augment()` adds fitted values to the training locations. The user must
+supply the prediction formula.
+
+## What does NOT work
+
+### `bru_reg()` parsnip constructor
+
+`bru_reg()` and `bru_cv_predict()` do **not** support spatial models.
+The parsnip fit interface passes a standard data frame to `bru()`, which does
+not include the mesh, SPDE object, or integration stack that spatial models
+require. Attempting to use `bru_reg()` for spatial fits will either error or
+silently produce a non-spatial model.
+
+**Do not do this for spatial models:**
+
+```{r}
+# WRONG for spatial models — this drops the spatial component
+bru_reg(family = "gaussian") |>
+  set_engine("inlabru") |>
+  fit(y ~ field + Intercept(1), data = obs_sp)
+```
+
+### `bru_cv_predict()` cross-validation helper
+
+Standard k-fold cross-validation is not appropriate for spatial models because:
+
+1. Training folds preserve spatial autocorrelation — holdout scores are
+   optimistic relative to prediction at new locations.
+2. The SPDE random effect is indexed to a fixed mesh. Re-fitting on a subset
+   of data does not change the mesh or reproject the field — it just conditions
+   on fewer observations, which is not the same as predicting at unobserved
+   locations.
+3. For point-process models (LGCP), the integration stack is built from the
+   full domain, not the training fold.
+
+For spatial cross-validation, use spatial blocking (e.g., the `blockCV`
+package) and evaluate with proper scoring rules via `bru_score()`. See
+`vignette("scoring")`.
+
+## Recommended workflow for spatial models
+
+The block below is an **illustrative skeleton** — substitute your own
+`components`, `likelihood`, and `holdout_sp` to make it runnable. It is
+not chunk-evaluated:
+
+```r
+library(inlabru)
+library(inlaops)
+
+# 1. Fit the full model with config = TRUE
+fit <- bru(
+  components,
+  likelihood,
+  options = bru_options(control.compute = list(config = TRUE,
+                                               dic    = TRUE,
+                                               waic   = TRUE))
+)
+
+# 2. Inspect with tidy/glance
+tidy(fit, effects = "hyperpar")
+glance(fit)
+
+# 3. Evaluate against held-out locations with proper scoring rules
+holdout_scores <- bru_score(
+  fit,
+  newdata      = holdout_sp,
+  pred_formula = ~ exp(Intercept + field),
+  y_col        = "y",
+  n_samples    = 1000L
+)
+summary(holdout_scores)
+
+# 4. Version and serve with vetiver
+library(vetiver); library(pins)
+v <- vetiver_model(
+  fit, "spatial_model_v1",
+  metadata = list(
+    pred_formula = "~ exp(Intercept + field)",
+    n_samples    = 500L,
+    coord_names  = c("x", "y"),  # required for /predict endpoint
+    crs          = 32632
+  )
+)
+vetiver_pin_write(board_temp("./model-store"), v)
+```
+
+## Request body contract
+
+JSON requests to `/predict` carry one row per query point with **two
+groups of columns**:
+
+1. **Coord columns** matching `metadata$user$coord_names`, holding numeric
+   coordinates in the CRS declared in `metadata$user$crs`.
+2. **Covariate columns** matching the non-geometry columns of the fit's
+   likelihood data — e.g., temperature, elevation, treatment indicator —
+   used inside the prediction formula.
+
+The ptype the handler builds at pin time encodes both groups, so vetiver's
+JSON validator does not strip either before reconstruction. If you need a
+different request schema (custom coord names, additional columns), pass a
+custom prototype via `save_prototype` to `vetiver_model()`:
+
+```{r}
+v <- vetiver_model(
+  fit,
+  "custom_schema",
+  save_prototype = tibble::tibble(lon = 0.0, lat = 0.0, x1 = 0.0)
+)
+v$metadata$user$coord_names <- c("lon", "lat")  # match what you sent above
+```
+
+## Docker image for spatial fits
+
+inlabru imports sf, so every inlaops image needs GDAL/PROJ/GEOS at
+runtime, spatial model or not. `vignette("docker")` has a Dockerfile on
+`rocker/geospatial` that serves spatial and non-spatial fits alike.
+
+## Multi-likelihood models
+
+inlabru supports fitting multiple likelihoods simultaneously (e.g., combining
+point observations with areal aggregates). The vetiver bridge handles these
+correctly as long as you pass a custom prototype via `save_prototype` to
+`vetiver_model()`, because `vetiver_ptype.bru()` only reads from the first
+likelihood:
+
+```{r}
+v <- vetiver_model(
+  fit,
+  "multi_lhood_spatial",
+  save_prototype = tibble::tibble(x = 0, y = 0)
+)
+```

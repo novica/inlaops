@@ -1,0 +1,187 @@
+---
+title: "inlabru as a Bayesian GLM with parsnip"
+format: html
+vignette: >
+  %\VignetteIndexEntry{inlabru as a Bayesian GLM with parsnip}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  # Evaluated wherever INLA and the packages used here are installed.
+  eval     = all(vapply(
+    c("INLA", "parsnip", "broom", "rsample", "yardstick", "dplyr", "vetiver", "pins"),
+    requireNamespace, logical(1), quietly = TRUE
+  ))
+)
+```
+
+## Scope
+
+`bru_reg()` is scoped to **inlabru used as a fast Bayesian GLM**: models
+with fixed effects and IID random intercepts only. If your model includes any
+of the following, stop here and use inlabru's native interface instead:
+
+- Spatial random effects: BYM2, SPDE, LGCP
+- Structured temporal effects: AR1, RW1, RW2
+- Custom nonlinear predictors with mapper functions
+
+For those models, cross-validation RMSE is not a meaningful quantity and the
+parsnip abstraction does not hold. See `vignette("scoring")` for the
+statistically appropriate evaluation approach.
+
+For simple Bayesian GLMs — Poisson regression for counts, Gaussian regression
+for continuous outcomes, binomial for proportions — the parsnip layer gives
+you a consistent interface for comparison with frequentist or ML baselines and
+clean integration with the rest of the tidymodels ecosystem.
+
+## Setup
+
+```{r, message = FALSE}
+library(inlabru)
+library(inlaops)
+library(parsnip)
+library(broom)
+library(rsample)
+library(yardstick)
+library(dplyr)
+```
+
+## Example: Poisson regression for count data
+
+```{r}
+set.seed(123)
+n   <- 300
+dat <- data.frame(
+  area   = rnorm(n),
+  effort = runif(n, 0.5, 2.0)
+)
+log_mu     <- 0.5 + 0.8 * dat$area + log(dat$effort)
+dat$counts <- rpois(n, exp(log_mu))
+```
+
+`bru_reg()` does not auto-encode factor or character predictors — fitting
+`counts ~ Intercept(1) + habitat` on a raw `factor` or `character` column
+errors with a pointer to three workarounds: pre-encode via
+`recipes::step_dummy()` + `recipes::bake()` before calling `fit()`
+(recipes/workflows cannot be wrapped around `bru_reg` because they rebuild
+formulas without inlabru's component syntax), convert to integer indicator
+columns yourself, or use inlabru's native
+`habitat(habitat, model = "factor_full")` component syntax.
+
+### Fit with bru_reg()
+
+```{r}
+spec <- bru_reg(mode = "regression", family = "poisson")
+
+fit <- spec |>
+  set_engine("inlabru") |>
+  fit(counts ~ Intercept(1) + area + effort, data = dat)
+
+fit
+```
+
+The engine automatically sets `control.compute = list(config = TRUE, dic = TRUE, waic = TRUE)`.
+The fit is serving-ready for the vetiver bridge without any extra options.
+For large data sets where WAIC is too expensive, opt out via
+`set_engine("inlabru", dic = FALSE, waic = FALSE)`; `config = TRUE` is
+always set because the vetiver `/predict` endpoint needs it.
+
+### Inspect with broom
+
+The `tidy()`, `glance()`, and `augment()` methods for `bru` fits come from
+inlabru (>= 2.15.0).
+
+```{r}
+tidy(fit$fit)
+
+glance(fit$fit)
+```
+
+### Predict
+
+```{r}
+new_dat <- data.frame(area = c(-1, 0, 1), effort = c(1, 1, 1))
+predict(fit, new_data = new_dat)
+```
+
+The parsnip `predict()` returns the posterior mean on the response scale.
+For predictive uncertainty, use `augment()` directly:
+
+```{r}
+augment(fit$fit, data = new_dat, pred_formula = ~ exp(Intercept + area + effort))
+```
+
+## Comparing against a frequentist baseline
+
+A side-by-side comparison with a frequentist GLM is a one-liner per engine.
+Note that `bru_reg` requires inlabru component syntax (`Intercept(1)` is
+explicit), while `glm()` uses the standard implicit-intercept form — the
+formulas differ on purpose.
+
+```{r}
+# Frequentist baseline
+fit_glm <- glm(counts ~ area + effort, data = dat, family = poisson())
+
+# Bayesian with inlabru, via parsnip
+bru_spec <- bru_reg(family = "poisson") |> set_engine("inlabru")
+fit_bru  <- bru_spec |>
+  fit(counts ~ Intercept(1) + area + effort, data = dat)
+
+# Coefficient comparison (response-scale interval for the Bayesian fit)
+broom::tidy(fit_glm)
+broom::tidy(fit_bru$fit)
+```
+
+`recipes` and `workflows` are not compatible with `bru_reg` because they
+rebuild formulas in the standard implicit-intercept shape, which `bru()`
+rejects (it needs the explicit `Intercept(1)` component). For preprocessing,
+manipulate `data` before the call to `fit()` rather than wrapping in a
+recipe.
+
+## Cross-validation with bru_cv_predict()
+
+For fixed-effects models, `bru_cv_predict()` wraps `vfold_cv()` and returns
+a tidy holdout prediction tibble:
+
+```{r}
+cv_preds <- bru_cv_predict(
+  formula      = counts ~ Intercept(1) + area + effort,
+  family       = "poisson",
+  data         = dat,
+  v            = 5L,
+  pred_formula = ~ exp(Intercept + area + effort),
+  n_samples    = 500L
+)
+
+cv_preds
+
+# Compute RMSE across folds
+yardstick::rmse(cv_preds, truth = .truth, estimate = .pred)
+```
+
+For proper scoring rules that use the full posterior distribution rather than
+just the mean, see `vignette("scoring")`.
+
+## Connecting to vetiver
+
+A model fit via `bru_reg()` is automatically serving-ready:
+
+```{r}
+library(vetiver)
+library(pins)
+
+v <- vetiver_model(fit$fit, "poisson_glm")
+v$metadata$user <- list(
+  pred_formula = "~ exp(Intercept + area + effort)",
+  n_samples    = 1000L
+)
+
+board <- board_temp()
+vetiver_pin_write(board, v)
+```
+
+See `vignette("vetiver")` for the full serving and monitoring workflow.

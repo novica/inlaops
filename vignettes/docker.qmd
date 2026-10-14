@@ -1,0 +1,155 @@
+---
+title: "Packaging an inlabru model API in a container"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Packaging an inlabru model API in a container}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+Once a model is pinned to a board (see `vignette("vetiver")`), the same
+`/predict` API can run in a container. This vignette shows a Dockerfile
+that works for inlabru fits, and why it differs from what
+`vetiver_prepare_docker()` would generate. The commands work with Docker
+and Podman alike.
+
+## Why not `vetiver_prepare_docker()`?
+
+For most models `vetiver_prepare_docker()` writes a `Dockerfile`, a
+`plumber.R` and an renv lockfile in one go. It does not work for inlabru
+fits:
+
+- It looks up system requirements for every package in the lockfile on
+  Posit Package Manager, which rejects packages it doesn't know. INLA is
+  not on CRAN, so the call fails with *"unrecognized package id"*.
+- vetiver never loads the packages a model needs inside the API process.
+  The methods that serve `bru` fits live in inlaops, so the container has
+  to run `library(inlaops)` before building the API.
+- inlabru imports sf, so every image needs GDAL, GEOS and PROJ, spatial
+  model or not.
+
+So write `plumber.R` with vetiver and the `Dockerfile` by hand.
+
+## 1. Write `plumber.R`
+
+Pin the model to a board the container can reach, then let vetiver write
+the API file:
+
+```{r}
+library(vetiver)
+library(pins)
+
+board <- board_folder("model-store")   # or board_s3(), board_connect(), ...
+vetiver_pin_write(board, v)
+
+vetiver_write_plumber(board, "gaussian_glm")
+```
+
+The generated `plumber.R` reads the model from the board when the API
+starts, so deploying a new version means pinning it and restarting the
+container — no rebuild.
+
+## 2. Write the `Dockerfile`
+
+```dockerfile
+# inlabru imports sf, so every image needs GDAL/GEOS/PROJ:
+# rocker/geospatial ships them prebuilt.
+FROM docker.io/rocker/geospatial:4.6.1
+
+# INLA is not on CRAN.
+RUN Rscript -e "install.packages('INLA', repos = c(getOption('repos'), \
+  INLA = 'https://inla.r-inla-download.org/R/stable'))"
+
+# sn: INLA's posterior sampler needs it but only lists it in Suggests.
+RUN Rscript -e "install.packages(c('inlabru', 'sn', 'vetiver', 'pins', \
+  'plumber', 'rapidoc', 'remotes'))"
+RUN Rscript -e "remotes::install_github('novica/inlaops', upgrade = 'never')"
+
+WORKDIR /opt/ml
+# Only for a local board_folder(); remote boards are read at startup.
+COPY model-store model-store
+COPY plumber.R plumber.R
+
+EXPOSE 8000
+# Load inlaops first: it provides the handlers that serve bru fits.
+ENTRYPOINT ["R", "-e", "library(inlaops); pr <- plumber::plumb('/opt/ml/plumber.R'); pr$run(host = '0.0.0.0', port = 8000)"]
+```
+
+Notes:
+
+- Pin the image tag. rocker images for past R releases install packages
+  from a dated Posit Package Manager snapshot, which keeps rebuilds
+  reproducible. inlaops needs inlabru (>= 2.15.0), so use an image whose
+  snapshot is at least that recent.
+- Check the INLA repository URL at
+  <https://www.r-inla.org/download-install> before deploying to a new
+  environment.
+- For a remote board (S3, Posit Connect, ...), drop the `COPY model-store`
+  line and pass credentials as environment variables at `docker run` time
+  (see `vignette("versioning")`).
+
+## 3. Build and test locally
+
+```bash
+docker build -t gaussian_glm .
+docker run --rm -p 8000:8000 gaussian_glm
+```
+
+The API answers once INLA has loaded, after a few seconds:
+
+```bash
+curl http://localhost:8000/ping
+
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '[{"x1": 0.5, "x2": 1.0}, {"x1": -1.2, "x2": 0.3}]'
+#> [{".pred":1.9943,".pred_low":1.893,".pred_high":2.1142,".pred_sd":0.057},
+#>  {".pred":0.9361,".pred_low":0.8352,".pred_high":1.0505,".pred_sd":0.0543}]
+```
+
+Values differ slightly between calls because they come from posterior
+sampling.
+
+## 4. Spatial models
+
+Point-referenced fits (`sf` / `sp` points, SPDE fields, LGCP intensity
+surfaces) use the same image. The request carries coordinates, so the pin
+metadata needs `coord_names` and `crs`:
+
+```{r}
+v <- vetiver_model(
+  fit_sf, "sf_points",
+  metadata = list(
+    pred_formula = "~ Intercept + x1",
+    coord_names  = c("X", "Y"),   # sf fits: sf::st_coordinates() names
+    crs          = 4326L          # EPSG integer or WKT string
+  )
+)
+```
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '[{"X": 10.3, "Y": 59.3, "x1": 0.8}]'
+```
+
+See `vignette("spatial")` for the full request contract.
+
+Polygon / areal fits (`sf` polygons, `SpatialPolygonsDataFrame`) are
+rejected at pin time. Until areal serving lands, use the custom-plumber
+pattern in `vignette("lgcp")` (section 3); its `plumber.R` goes into the
+same image.
+
+## 5. Image size
+
+The image is about 5 GB: rocker/geospatial plus INLA, which bundles
+binaries for several platforms. The first build takes several minutes;
+later builds reuse the cached layers until the package lines change.
