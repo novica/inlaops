@@ -1,0 +1,5 @@
+url: https://novica.github.io/inlaops/
+template:
+  bootstrap: 5
+development:
+  mode: release
