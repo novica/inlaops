@@ -2,7 +2,9 @@
   "packages": {
     ".": {
       "release-type": "r",
+
       "initial-version": "0.1.0",
+
       "package-name": "",
       "changelog-path": "CHANGELOG.md",
       "extra-files": ["DESCRIPTION", "CITATION.cff"],

@@ -88,8 +88,14 @@ install.packages("INLA",
 pak::pak("novica/inlaops")
 ```
 
+<div class="pkgdown-hide">
+
+<!-- Hidden on the pkgdown site, which has the articles in its navbar. -->
+
 ## Learn more
 
 The [articles](https://novica.github.io/inlaops/articles/) cover serving,
 versioning, containers, spatial and LGCP models, the parsnip engine and
 scoring rules.
+
+</div>
