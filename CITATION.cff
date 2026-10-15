@@ -15,6 +15,6 @@ authors:
     orcid: "https://orcid.org/0009-0005-7773-7718"
 version: 0.1.0 # x-release-please-version
 date-released: 2026-10-15
-license: Apache-2.0
+license: GPL (>= 3)
 url: "https://novica.github.io/inlaops/"
 repository-code: "https://github.com/novica/inlaops"
