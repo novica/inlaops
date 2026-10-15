@@ -107,3 +107,15 @@ test_that("bru_score rejects non-integer seed", {
     "single integer"
   )
 })
+
+test_that("bru_score rejects seed = 0, which INLA treats as random", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+  calls <- mock_generate(matrix(1, nrow = 1, ncol = 10))
+
+  expect_error(
+    bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 0),
+    "non-zero"
+  )
+  expect_null(calls$args)
+})

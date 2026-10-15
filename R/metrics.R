@@ -42,7 +42,8 @@
 #'   draws of `Y` on the outcome scale; see Details.
 #' @param y_col Name of the response column in `newdata`.
 #' @param n_samples Number of posterior samples (default 1000).
-#' @param seed Optional integer. If non-`NULL`, the scores are reproducible:
+#' @param seed Optional non-zero integer. If non-`NULL`, the scores are
+#'   reproducible:
 #'   the seed is used for R's RNG (the `r*()` draws in `pred_formula`) and
 #'   for INLA's posterior sampler, which then runs single-threaded. The
 #'   caller's RNG stream is restored afterwards.
@@ -65,6 +66,12 @@ bru_score <- function(
     !is.character(y_col) || length(y_col) != 1L || !y_col %in% names(newdata)
   ) {
     stop("`y_col` must name a single column of `newdata`.", call. = FALSE)
+  }
+  if (is.numeric(seed) && length(seed) == 1L && isTRUE(seed == 0)) {
+    stop(
+      "`seed` must be non-zero: INLA treats 0 as \"pick a random seed\".",
+      call. = FALSE
+    )
   }
 
   # Both seeds are needed: set.seed() covers R's RNG, `seed` covers INLA's

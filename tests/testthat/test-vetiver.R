@@ -122,6 +122,20 @@ test_that("vetiver_ptype refuses coordinates named like a data column", {
   expect_error(.vetiver_ptype_bru(fake_fit), "clash")
 })
 
+test_that("vetiver_ptype accepts data that repeats the coordinates", {
+  skip_if_not_installed("sp")
+
+  df <- data.frame(x = c(1, 2), y = c(3, 4), value = c(10, 20))
+  spdf <- sp::SpatialPointsDataFrame(df[, c("x", "y")], df)
+  fake_fit <- structure(
+    list(
+      bru_info = mock_bru_info(list(list(data = spdf, formula = value ~ .)))
+    ),
+    class = c("bru", "inla")
+  )
+  expect_named(.vetiver_ptype_bru(fake_fit), c("x", "y"))
+})
+
 test_that("vetiver_prepare_model rejects polygon sf fits with a clear message", {
   skip_if_not_installed("sf")
 

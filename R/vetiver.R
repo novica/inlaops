@@ -79,16 +79,23 @@ NULL
   ptype[0, setdiff(names(ptype), response), drop = FALSE]
 }
 
-# Append coordinate columns to a prototype. A coordinate named like a data
-# column (e.g. response `y` with coordinates x / y) would silently replace it.
+# Append coordinate columns to a prototype. Data often repeats the
+# coordinates under the same names (e.g. sf::st_as_sf(remove = FALSE)), which
+# is harmless. A same-named column with other values (e.g. response `y` with
+# coordinates x / y) would be silently replaced, so refuse that.
 .bru_add_coords <- function(ptype, coords) {
-  clash <- intersect(colnames(coords), names(ptype))
+  clash <- Filter(
+    function(nm) {
+      !isTRUE(all.equal(unname(ptype[[nm]]), unname(coords[, nm])))
+    },
+    intersect(colnames(coords), names(ptype))
+  )
   if (length(clash)) {
     stop(
       "Coordinate column(s) ",
       paste(shQuote(clash), collapse = ", "),
-      " clash with data columns of the same name. Rename the data columns ",
-      "before fitting so requests can carry both.",
+      " clash with data columns of the same name but different values. ",
+      "Rename the data columns before fitting so requests can carry both.",
       call. = FALSE
     )
   }

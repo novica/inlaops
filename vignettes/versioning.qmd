@@ -111,6 +111,7 @@ v1 <- vetiver_model(
   metadata = list(
     pred_formula  = "~ exp(Intercept + habitat_open + effort)",
     n_samples     = 500L,
+    model_year    = 1L,
     training_rows = nrow(train_y1),
     dic           = fit_v1$dic$dic,
     waic          = fit_v1$waic$waic,
@@ -169,6 +170,7 @@ v2 <- vetiver_model(
   metadata = list(
     pred_formula  = "~ exp(Intercept + habitat_open + effort)",
     n_samples     = 500L,
+    model_year    = 2L,
     training_rows = nrow(train_y2),
     dic           = fit_v2$dic$dic,
     waic          = fit_v2$waic$waic,
@@ -225,10 +227,15 @@ scores_v1_now <- bru_score(
   n_samples    = 1000L
 )
 
-# `versions` is sorted newest first: v2, then v1.
+# Match scores to versions through the model_year stored in each pin, not
+# through row order: timestamps can tie, and the board may hold more versions.
+crps_now <- c(`1` = mean(scores_v1_now$crps), `2` = mean(scores_v2$crps))
 head_to_head <- tibble(
-  version   = versions$version,
-  mean_crps = c(mean(scores_v2$crps), mean(scores_v1_now$crps))
+  version    = versions$version,
+  model_year = map_int(version, function(ver) {
+    pin_meta(board, "wildlife_counts", version = ver)$user$model_year
+  }),
+  mean_crps  = unname(crps_now[as.character(model_year)])
 )
 head_to_head
 ```

@@ -19,7 +19,8 @@ draws of \code{Y} on the outcome scale; see Details.}
 
 \item{n_samples}{Number of posterior samples (default 1000).}
 
-\item{seed}{Optional integer. If non-\code{NULL}, the scores are reproducible:
+\item{seed}{Optional non-zero integer. If non-\code{NULL}, the scores are
+reproducible:
 the seed is used for R's RNG (the \verb{r*()} draws in \code{pred_formula}) and
 for INLA's posterior sampler, which then runs single-threaded. The
 caller's RNG stream is restored afterwards.}
