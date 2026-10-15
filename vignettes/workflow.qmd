@@ -1,0 +1,45 @@
+---
+title: "How inlaops maps to the vetiver workflow"
+format: html
+vignette: >
+  %\VignetteIndexEntry{How inlaops maps to the vetiver workflow}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+For tidymodels and other supported models, vetiver gives a standard path
+from a trained model to a served one:
+
+**train → `vetiver_model()` → `vetiver_pin_write()` → `vetiver_api()` →
+deploy → monitor → call**
+
+inlaops puts an inlabru `bru` fit on that same path. Most steps work exactly
+as they do for any other model; this article lists where they differ.
+
+## Step by step
+
+| Step | tidymodels + vetiver | inlaops | Gap |
+|---|---|---|---|
+| Train | A workflow bundles preprocessing (a recipe) with the model, so new data is prepared the same way automatically. | `inlabru::bru()` with `config = TRUE`, or `bru_reg()` for fixed-effects models. | No preprocessing travels with the model; requests must carry ready-made predictors. |
+| Define the prediction | Implicit: the model's `predict()` method knows what to return. | Explicit: `pred_formula` in the pin metadata, e.g. `"~ exp(Intercept + field)"`. | An extra required step, which also lets you choose the quantity served (mean, intensity, linear predictor). |
+| `vetiver_model()` | Description, input schema and required packages are filled in automatically. | The same, through inlaops' methods. The input schema is the predictor columns, or coordinates for spatial point fits. | Only the first observation model is used ([#6](https://github.com/novica/inlaops/issues/6)); polygon / areal fits are rejected ([#5](https://github.com/novica/inlaops/issues/5)). |
+| Pin and version | `vetiver_pin_write()`, `pin_versions()`, metadata. | Identical. | None. |
+| API | `/predict` returns a point estimate; `/ping`, `/metadata` and request checking come with it. | Same endpoints and request checking. `/predict` returns the posterior mean, a 95% credible interval and the posterior SD. | Every request runs INLA's posterior sampler, so it is slower than a point prediction and needs INLA's compiled program on the host. The interval level is fixed at 95%. |
+| Deploy in a container | `vetiver_prepare_docker()` writes the Dockerfile, `plumber.R` and lockfile. | Write the Dockerfile by hand; `vignette("docker")` has one that works. | `vetiver_prepare_docker()` fails: its system-requirements lookup rejects INLA, which is not on CRAN. |
+| Deploy on Posit Connect | `vetiver_deploy_rsconnect()`. | Publish a hand-written `plumber.R` that loads inlaops, INLA and sn; see `vignette("connect")`. | vetiver's generated `plumber.R` does not load inlaops, so the API cannot serve a `bru` fit ([#16](https://github.com/novica/inlaops/issues/16)). The INLA build must also run on the server's operating system. |
+| Monitor | `vetiver_compute_metrics()`, `vetiver_pin_metrics()`, `vetiver_plot_metrics()` on `.pred`. | The same functions work on `.pred`. | They judge the posterior mean only. Scoring the whole predictive distribution (CRPS, log score) is a separate step with `bru_score()`; see `vignette("scoring")`. WAIC and DIC go into the pin metadata by hand. |
+| Call | `vetiver_endpoint()` and `predict()`, or any HTTP client. | Identical. | None. |
+
+## In short
+
+- **The core lifecycle matches.** Pinning, versioning, serving, calling and
+  basic monitoring work as they do for tidymodels, and the API returns more:
+  posterior uncertainty, not just a point estimate.
+- **The gaps sit at the two ends.** Before pinning, there is no bundled
+  preprocessing and the prediction formula has to be stated. At deployment,
+  vetiver's one-call helpers don't work for INLA models, so the Dockerfile
+  or `plumber.R` is written by hand.
+- **Some differences come from INLA itself:** posterior sampling on every
+  request, and a compiled `inla` program that has to match the host.
+
+For the full walkthrough of the shared steps, see `vignette("vetiver")`.
