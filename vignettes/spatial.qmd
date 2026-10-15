@@ -87,7 +87,7 @@ When polygon / areal serving lands, the design will be:
 
 This pattern handles BYM2 and similar areal models without dragging
 polygon WKT through every request body. It is not implemented yet — see
-the [areal serving issue](https://github.com/novica/inlaops/issues). For now, the
+the [areal serving issue](https://github.com/novica/inlaops/issues/5). For now, the
 custom-plumber pattern in `vignette("lgcp")` covers the same use case.
 
 ```{r}
