@@ -3,6 +3,7 @@
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml/badge.svg?branch=main)](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml)
 [![Codecov test coverage](https://codecov.io/gh/novica/inlaops/graph/badge.svg)](https://app.codecov.io/gh/novica/inlaops)
+[![pkgdown](https://github.com/novica/inlaops/actions/workflows/pkgdown.yml/badge.svg?branch=main)](https://github.com/novica/inlaops/actions/workflows/pkgdown.yml)
 <!-- badges: end -->
 
 Serve [inlabru](https://inlabru-org.github.io/inlabru/) models as versioned
