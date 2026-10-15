@@ -73,8 +73,9 @@ file name matters: publishing recognises the folder as an API by its
 
 ```r
 library(INLA)    # Suggested only: listed so publishing installs it
-library(sn)      # INLA's posterior sampler needs it; also only suggested
+library(inlabru)
 library(inlaops) # provides the methods that serve bru fits
+library(sn)      # INLA's posterior sampler needs it; also only suggested
 library(vetiver)
 library(pins)
 library(plumber)
@@ -92,6 +93,8 @@ Each `library()` line is there for a reason:
 - **inlaops** provides the vetiver methods for `bru` fits. vetiver never loads
   a model's packages by itself, so without this line the API fails at startup
   with *"There is no method available to build a prediction handler"*.
+- **inlabru** is loaded by inlaops anyway; listing it keeps the file
+  explicit about what the API runs on.
 - **INLA** and **sn** are only suggested by inlabru and INLA. Publishing finds
   packages through the `library()` calls in your code, so without these lines
   Connect does not install them and the first prediction fails.
