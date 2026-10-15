@@ -117,5 +117,10 @@ test_that("bru_score rejects seed = 0, which INLA treats as random", {
     bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 0),
     "non-zero"
   )
+  # Fractional seeds are truncated to an integer, so 0.5 is 0 as well.
+  expect_error(
+    bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 0.5),
+    "non-zero"
+  )
   expect_null(calls$args)
 })

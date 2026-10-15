@@ -67,7 +67,9 @@ bru_score <- function(
   ) {
     stop("`y_col` must name a single column of `newdata`.", call. = FALSE)
   }
-  if (is.numeric(seed) && length(seed) == 1L && isTRUE(seed == 0)) {
+  if (
+    is.numeric(seed) && length(seed) == 1L && isTRUE(as.integer(seed) == 0L)
+  ) {
     stop(
       "`seed` must be non-zero: INLA treats 0 as \"pick a random seed\".",
       call. = FALSE
