@@ -96,7 +96,7 @@ pak::pak("novica/inlaops")
 ## Learn more
 
 The [articles](https://novica.github.io/inlaops/articles/) cover serving,
-versioning, containers, spatial and LGCP models, the parsnip engine and
+versioning, containers, Posit Connect, spatial and LGCP models, the parsnip engine and
 scoring rules.
 
 </div>

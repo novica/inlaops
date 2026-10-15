@@ -112,8 +112,9 @@ pin_versions(board, "gaussian_glm")
 
 ## 4. Serve the API and call it
 
-In production the API runs on its own (see `vignette("docker")`). Locally
-you would run this in a separate R session; it blocks until stopped:
+In production the API runs on its own (see `vignette("docker")` and
+`vignette("connect")`). Locally you would run this in a separate R session;
+it blocks until stopped:
 
 ```{r, eval = FALSE}
 pr() |>
@@ -188,7 +189,8 @@ try(predict(endpoint, data.frame(x1 = 0.5)))
 server$kill()
 ```
 
-For packaging the model into a container, see `vignette("docker")`.
+For packaging the model into a container, see `vignette("docker")`; for
+hosting it on Posit Connect, see `vignette("connect")`.
 
 ## 5. Track model quality across versions
 

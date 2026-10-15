@@ -1,0 +1,166 @@
+---
+title: "Serving an inlabru model on Posit Connect"
+format: html
+vignette: >
+  %\VignetteIndexEntry{Serving an inlabru model on Posit Connect}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+Posit Connect can host the `/predict` API from `vignette("vetiver")` next to
+the pinned model it serves. This vignette walks through a minimal deployment:
+pin a model to Connect, publish a `plumber.R`, and call the API. It needs a
+Connect server, so none of the code runs when the vignette is built.
+
+## 1. Install inlaops from GitHub
+
+Publishing records where every package in your library came from, and
+Connect installs the same versions from the same sources. A package installed
+from a local checkout has no source Connect can use, so install inlaops from
+GitHub:
+
+```{r}
+pak::pak("novica/inlaops")
+```
+
+## 2. Fit and pin the model
+
+Fit as usual with `config = TRUE`, then pin to a Connect board. `board_connect()`
+reads the server and API key from `CONNECT_SERVER` / `CONNECT_API_KEY`, or
+from the account you publish with from RStudio.
+
+```{r}
+library(inlabru)
+library(inlaops)
+library(vetiver)
+library(pins)
+
+set.seed(1)
+dat <- data.frame(x1 = rnorm(200), x2 = rnorm(200))
+dat$y <- 2 + 0.8 * dat$x1 - 0.4 * dat$x2 + rnorm(200, sd = 0.5)
+
+fit <- bru(
+  y ~ Intercept(1) + x1 + x2,
+  family  = "gaussian",
+  data    = dat,
+  options = bru_options(control.compute = list(config = TRUE))
+)
+
+v <- vetiver_model(
+  fit, "inla_poc",
+  metadata = list(pred_formula = "~ Intercept + x1 + x2")
+)
+
+board <- board_connect()
+vetiver_pin_write(board, v)
+```
+
+The pin is stored under your Connect user name, e.g. `jane/inla_poc`.
+
+## 3. Write `plumber.R`
+
+Save this as `plumber.R` in a folder of its own, which you then publish. The
+file name matters: publishing recognises the folder as an API by its
+`plumber.R`.
+
+```r
+library(INLA)    # Suggested only: listed so publishing installs it
+library(sn)      # INLA's posterior sampler needs it; also only suggested
+library(inlaops) # provides the methods that serve bru fits
+library(vetiver)
+library(pins)
+library(plumber)
+
+v <- vetiver_pin_read(board_connect(), "jane/inla_poc")
+
+#* @plumber
+function(pr) {
+  pr |> vetiver_api(v)
+}
+```
+
+Each `library()` line is there for a reason:
+
+- **inlaops** provides the vetiver methods for `bru` fits. vetiver never loads
+  a model's packages by itself, so without this line the API fails at startup
+  with *"There is no method available to build a prediction handler"*.
+- **INLA** and **sn** are only suggested by inlabru and INLA. Publishing finds
+  packages through the `library()` calls in your code, so without these lines
+  Connect does not install them and the first prediction fails.
+
+`vetiver_write_plumber()` writes a similar file, but it lists the model's
+packages inside `if (FALSE)`, which records them without loading them.
+
+## 4. Publish
+
+From RStudio, publish the folder with the blue publish button and choose
+"API", or from the console:
+
+```{r}
+rsconnect::deployAPI("path/to/api-folder")
+```
+
+When the model changes, pin a new version (section 2) and restart the API
+on Connect; it reads the latest pin at startup. No republish is needed.
+
+## 5. Call the API
+
+Open the content URL: vetiver's docs page lets you try `/predict` in the
+browser, for example with `[{"x1": 0.5, "x2": 1.0}]`. From R, use vetiver's
+client with an API key (not needed if the content's access is "Anyone"):
+
+```{r}
+endpoint <- vetiver_endpoint(
+  "https://connect.example.com/content/<guid>/predict"
+)
+auth <- httr::add_headers(
+  Authorization = paste("Key", Sys.getenv("CONNECT_API_KEY"))
+)
+
+predict(endpoint, data.frame(x1 = c(0.5, -1.2), x2 = c(1.0, 0.3)), auth)
+```
+
+From any other client:
+
+```sh
+curl -X POST "https://connect.example.com/content/<guid>/predict" \
+  -H "Authorization: Key $CONNECT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '[{"x1": 0.5, "x2": 1.0}]'
+```
+
+Each row of the response has the posterior mean (`.pred`), the 95% credible
+interval (`.pred_low`, `.pred_high`) and the posterior SD (`.pred_sd`).
+
+## INLA on the server
+
+INLA does its computations in its own compiled `inla` program, not in R.
+Connect installs the INLA version you published with, and that version's
+Linux build has to run on the server.
+
+Recent INLA builds need a recent C library (INLA 25.06.07 and 25.10.19 need
+glibc 2.38; 24.12.11 needs 2.29), which older server operating systems don't
+have. The API then starts
+fine, but every `/predict` call returns a server error (500), and the content
+log shows lines like:
+
+```
+inla.mkl: /lib64/libc.so.6: version `GLIBC_2.38' not found
+```
+
+The fix is to publish with an INLA build that runs on your server: an older
+INLA release, or a build your Connect administrators provide for its operating
+system. Install that same build locally before publishing, so the publish
+records it. Fitting a small model with `inla()` in a Quarto document on the
+server is a quick way to check whether a given INLA build works there.
+
+The container route in `vignette("docker")` avoids this, because its base
+image is a current Linux.
