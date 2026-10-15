@@ -1,3 +1,10 @@
+# inlaops 0.1.1
+
+## Documentation
+
+* add a Posit Connect deployment vignette ([#15](https://github.com/novica/inlaops/issues/15)) ([210ab28](https://github.com/novica/inlaops/commit/210ab285864a7b107b429915e44a107bcc40c9ac))
+* add an article comparing inlaops with the vetiver workflow ([#17](https://github.com/novica/inlaops/issues/17)) ([4210de2](https://github.com/novica/inlaops/commit/4210de27708d4f82fbada601b79873d471107d8d))
+
 # inlaops 0.1.0
 
 ## New features
