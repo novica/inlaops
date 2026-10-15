@@ -160,9 +160,14 @@ inla.mkl: /lib64/libc.so.6: version `GLIBC_2.38' not found
 ```
 
 The fix is to publish with an INLA build that runs on your server: an older
-INLA release, or a build your Connect administrators provide for its operating
-system. Install that same build locally before publishing, so the publish
-records it. Fitting a small model with `inla()` in a Quarto document on the
+INLA release, or a build made for its operating system. Install that same
+build locally before publishing, so the publish records it.
+
+[This script](https://gist.github.com/novica/447c8f5c0a54386abdc113e618e58d66)
+makes such a build: an INLA package with the `inla` program for a chosen
+Linux distribution bundled inside, ready to publish to an internal package
+repository such as Posit Package Manager. Install INLA from that repository,
+both locally and on Connect, and the versions match. Fitting a small model with `inla()` in a Quarto document on the
 server is a quick way to check whether a given INLA build works there.
 
 The container route in `vignette("docker")` avoids this, because its base
