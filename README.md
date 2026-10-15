@@ -21,12 +21,16 @@ version history, served over HTTP and packaged in a container like any
 `lm()` or tidymodels fit. Each prediction carries the posterior mean, a 95%
 credible interval and the posterior standard deviation.
 
-For example, a surveillance team fits a spatial model of disease counts
-across fish farms. A dashboard, or another service written in any language,
-sends a farm's coordinates and covariates to `/predict` and gets back the
-expected count with its credible interval. Nobody on the consuming side runs
-R. When the model is refitted on new data, the new version is pinned and the
-API serves it, with the old versions kept for comparison and rollback.
+For example, inlabru's
+[gorilla nests article](https://inlabru-org.github.io/inlabru/articles/2d_lgcp_covars.html)
+fits a log-Gaussian Cox process to nest locations in the Kagwene Gorilla
+Sanctuary. Pinned and served with inlaops, that intensity surface
+(`~ exp(field + Intercept)`) becomes an endpoint: a field team's app, or a
+service in any language, sends coordinates to `/predict` and gets back the
+expected nest density there, with its credible interval. Nobody on the
+consuming side runs R. When the model is refitted on a new survey, the new
+version is pinned and served, and the old versions stay available for
+comparison and rollback.
 
 ## Example
 
@@ -86,12 +90,6 @@ pak::pak("novica/inlaops")
 
 ## Learn more
 
-| Vignette | Covers |
-|---|---|
-| `vignette("vetiver")` | Fit, pin, serve and call the API; monitoring |
-| `vignette("versioning")` | Model versions, promotion and rollback |
-| `vignette("docker")` | Packaging the API in a container |
-| `vignette("spatial")` | Spatial fits and the request-body contract |
-| `vignette("lgcp")` | Serving LGCP intensity surfaces |
-| `vignette("glm")` | `bru_reg()` with parsnip, cross-validation |
-| `vignette("scoring")` | Proper scoring rules for model comparison |
+The [articles](https://novica.github.io/inlaops/articles/) cover serving,
+versioning, containers, spatial and LGCP models, the parsnip engine and
+scoring rules.
