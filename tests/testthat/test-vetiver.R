@@ -110,6 +110,18 @@ test_that("vetiver_ptype surfaces sp coord columns alongside attributes", {
   expect_true(all(c("val", "lon", "lat") %in% names(ptype)))
 })
 
+test_that("vetiver_ptype refuses coordinates named like a data column", {
+  skip_if_not_installed("sp")
+
+  coords <- matrix(1:4, ncol = 2, dimnames = list(NULL, c("x", "y")))
+  spdf <- sp::SpatialPointsDataFrame(coords, data.frame(y = c(10, 20)))
+  fake_fit <- structure(
+    list(bru_info = mock_bru_info(list(list(data = spdf, formula = y ~ .)))),
+    class = c("bru", "inla")
+  )
+  expect_error(.vetiver_ptype_bru(fake_fit), "clash")
+})
+
 test_that("vetiver_prepare_model rejects polygon sf fits with a clear message", {
   skip_if_not_installed("sf")
 

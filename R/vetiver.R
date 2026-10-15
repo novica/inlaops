@@ -66,21 +66,36 @@ NULL
     } else {
       as_tibble(sf::st_drop_geometry(lhood_data))
     }
-    for (nm in colnames(coords)) {
-      ptype[[nm]] <- coords[, nm]
-    }
+    ptype <- .bru_add_coords(ptype, coords)
   } else if (identical(spatial_class, "sp_point")) {
     ptype <- as_tibble(lhood_data@data)
     coords <- sp::coordinates(lhood_data)
-    for (nm in colnames(coords)) {
-      ptype[[nm]] <- coords[, nm]
-    }
+    ptype <- .bru_add_coords(ptype, coords)
   } else {
     ptype <- as_tibble(lhood_data)
   }
   # Requests carry predictors only; the response is what /predict returns.
   response <- if (length(obs$formula) == 3L) all.vars(obs$formula[[2L]])
   ptype[0, setdiff(names(ptype), response), drop = FALSE]
+}
+
+# Append coordinate columns to a prototype. A coordinate named like a data
+# column (e.g. response `y` with coordinates x / y) would silently replace it.
+.bru_add_coords <- function(ptype, coords) {
+  clash <- intersect(colnames(coords), names(ptype))
+  if (length(clash)) {
+    stop(
+      "Coordinate column(s) ",
+      paste(shQuote(clash), collapse = ", "),
+      " clash with data columns of the same name. Rename the data columns ",
+      "before fitting so requests can carry both.",
+      call. = FALSE
+    )
+  }
+  for (nm in colnames(coords)) {
+    ptype[[nm]] <- coords[, nm]
+  }
+  ptype
 }
 
 .vetiver_prepare_model_bru <- function(model) {
