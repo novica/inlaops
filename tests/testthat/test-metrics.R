@@ -1,13 +1,81 @@
-test_that("bru_score ds does not blow up when sample variance collapses", {
-  # Pure arithmetic check against the var_floor branch — doesn't require a fit.
-  y <- c(1.0, 2.0)
-  samples <- rbind(rep(1.0, 100), rep(2.0, 100)) # variance = 0
-  sample_mean <- rowMeans(samples)
-  sample_var <- apply(samples, 1, stats::var)
-  var_floor <- pmax(sample_var, .Machine$double.eps)
+# inlabru::generate() is mocked so these tests exercise bru_score() itself
+# without a fitted model.
+mock_generate <- function(samples, env = parent.frame()) {
+  calls <- new.env()
+  local_mocked_bindings(
+    generate = function(...) {
+      calls$args <- list(...)
+      samples
+    },
+    .package = "inlabru",
+    .env = env
+  )
+  calls
+}
 
-  ds <- (y - sample_mean)^2 / var_floor + log(var_floor)
-  expect_true(all(is.finite(ds)))
+test_that("bru_score returns one row of scores per observation", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+
+  set.seed(1)
+  y <- c(0, 1, 2)
+  mock_generate(matrix(rnorm(300, mean = rep(y, 100)), nrow = 3))
+
+  scores <- bru_score(NULL, data.frame(y = y), ~1, y_col = "y")
+
+  expect_s3_class(scores, "tbl_df")
+  expect_named(scores, c("crps", "logs", "se", "ds"))
+  expect_equal(nrow(scores), 3L)
+  expect_true(all(is.finite(as.matrix(scores))))
+})
+
+test_that("bru_score ds stays finite when sample variance collapses", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+
+  mock_generate(rbind(rep(1.0, 100), rep(2.0, 100)))
+
+  scores <- bru_score(NULL, data.frame(y = c(1, 2)), ~1, y_col = "y")
+
+  expect_true(all(is.finite(scores$ds)))
+})
+
+test_that("bru_score errors when generate() output has the wrong shape", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+
+  mock_generate(matrix(0, nrow = 1, ncol = 10))
+
+  expect_error(
+    bru_score(NULL, data.frame(y = c(1, 2)), ~1, y_col = "y"),
+    "N_obs x N_samples"
+  )
+})
+
+test_that("bru_score checks y_col before sampling", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+
+  calls <- mock_generate(matrix(0, nrow = 1, ncol = 10))
+
+  expect_error(
+    bru_score(NULL, data.frame(y = 1), ~1, y_col = "count"),
+    "y_col"
+  )
+  expect_null(calls$args)
+})
+
+test_that("bru_score passes the seed to INLA's sampler", {
+  skip_if_not_installed("scoringRules")
+  skip_if_not_installed("inlabru")
+
+  calls <- mock_generate(matrix(1, nrow = 1, ncol = 10))
+
+  bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 3L)
+  expect_identical(calls$args$seed, 3L)
+
+  bru_score(NULL, data.frame(y = 1), ~1, y_col = "y")
+  expect_identical(calls$args$seed, 0L)
 })
 
 test_that("bru_score requires scoringRules", {
@@ -40,25 +108,19 @@ test_that("bru_score rejects non-integer seed", {
   )
 })
 
-test_that("bru_score returns expected columns with Gaussian Y-samples", {
+test_that("bru_score rejects seed = 0, which INLA treats as random", {
   skip_if_not_installed("scoringRules")
   skip_if_not_installed("inlabru")
+  calls <- mock_generate(matrix(1, nrow = 1, ncol = 10))
 
-  # Construct a minimal fake that inlabru::generate would return by monkey-
-  # patching via with_mocked_bindings — or skip the end-to-end here and rely
-  # on the integration test. Use a stub that goes directly through the
-  # post-generate arithmetic by calling the scoringRules primitives ourselves.
-  y <- c(0, 1, 2)
-  samples <- matrix(rnorm(30, mean = rep(y, 10)), nrow = 3)
-  sample_mean <- rowMeans(samples)
-  sample_var <- apply(samples, 1L, stats::var)
-  var_floor <- pmax(sample_var, .Machine$double.eps)
-  expected <- tibble::tibble(
-    crps = scoringRules::crps_sample(y, samples),
-    logs = scoringRules::logs_sample(y, samples),
-    se = (y - sample_mean)^2,
-    ds = (y - sample_mean)^2 / var_floor + log(var_floor)
+  expect_error(
+    bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 0),
+    "non-zero"
   )
-  expect_named(expected, c("crps", "logs", "se", "ds"))
-  expect_equal(nrow(expected), 3L)
+  # Fractional seeds are truncated to an integer, so 0.5 is 0 as well.
+  expect_error(
+    bru_score(NULL, data.frame(y = 1), ~1, y_col = "y", seed = 0.5),
+    "non-zero"
+  )
+  expect_null(calls$args)
 })

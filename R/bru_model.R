@@ -68,6 +68,8 @@ bru_inlaops_fit <- function(
     if (!isTRUE(cc$config)) {
       cc$config <- TRUE
     }
+    cc$dic <- cc$dic %||% dic
+    cc$waic <- cc$waic %||% waic
     options$control.compute <- cc
   }
   inlabru::bru(formula, data = data, options = options, ...)
@@ -77,27 +79,19 @@ bru_inlaops_fit <- function(
 # builds its response-scale formula around this table. Families not listed here
 # are rejected by .bru_inverse_link; users who want a response-scale prediction
 # for an unsupported family should call inlabru::predict() directly.
+#
+# Only families whose inverse link of the linear predictor is the response
+# mean belong here. Excluded on purpose: zero-inflated families (the mean
+# also depends on the zero-inflation probability), exponential / Weibull
+# (exp(eta) is a rate, not a mean) and log-normal (exp(eta) is the median).
 .bru_family_links <- list(
   gaussian = c(link = "identity", inv = "identity"),
   poisson = c(link = "log", inv = "exp"),
   nbinomial = c(link = "log", inv = "exp"),
   nbinomial2 = c(link = "log", inv = "exp"),
-  zeroinflatedpoisson0 = c(link = "log", inv = "exp"),
-  zeroinflatedpoisson1 = c(link = "log", inv = "exp"),
-  zeroinflatednbinomial0 = c(link = "log", inv = "exp"),
-  zeroinflatednbinomial1 = c(link = "log", inv = "exp"),
   gamma = c(link = "log", inv = "exp"),
-  gammasurv = c(link = "log", inv = "exp"),
-  exponential = c(link = "log", inv = "exp"),
-  exponentialsurv = c(link = "log", inv = "exp"),
-  weibull = c(link = "log", inv = "exp"),
-  weibullsurv = c(link = "log", inv = "exp"),
-  loggaussian = c(link = "log", inv = "exp"),
-  lognormal = c(link = "log", inv = "exp"),
   binomial = c(link = "logit", inv = "plogis"),
   betabinomial = c(link = "logit", inv = "plogis"),
-  zeroinflatedbinomial0 = c(link = "logit", inv = "plogis"),
-  zeroinflatedbinomial1 = c(link = "logit", inv = "plogis"),
   beta = c(link = "logit", inv = "plogis")
 )
 
@@ -118,12 +112,14 @@ bru_inlaops_fit <- function(
 
 # Error if the fit overrode the family default link. .bru_inverse_link maps
 # family → inverse link; if the user passed a non-default link via
-# control.family$link, the hardcoded mapping is silently wrong, so bail.
+# control.family$link or control.family$control.link$model, the hardcoded
+# mapping is silently wrong, so bail.
 .check_bru_default_link <- function(fit) {
   lhood <- inlabru::as_bru_obs_list(fit)[[1]]
   fam <- lhood$family %||% "gaussian"
-  user_link <- lhood$control.family$link
-  if (is.null(user_link)) {
+  user_link <- lhood$control.family$link %||%
+    lhood$control.family$control.link$model
+  if (is.null(user_link) || identical(as.character(user_link), "default")) {
     return(invisible())
   }
   entry <- .bru_family_links[[fam]]
@@ -185,7 +181,8 @@ bru_pred_formula <- function(fit) {
 # response-scale prediction. Tell the user so they can switch to
 # inlabru::predict() for conditional predictions.
 .warn_bru_random_effects <- function(fit) {
-  re_names <- rownames(fit$summary.random)
+  # summary.random is a named list of data frames, one per component.
+  re_names <- names(fit$summary.random)
   if (is.null(re_names) || length(re_names) == 0L) {
     return(invisible())
   }
@@ -219,9 +216,14 @@ bru_pred_formula <- function(fit) {
 # Factor and character predictors are not auto-encoded by bru_reg
 # (predictor_indicators = "none" in set_encoding); inlabru errors obscurely
 # when either is passed to a linear component. Catch both early with a
-# message pointing at the three reasonable workarounds.
+# message pointing at the three reasonable workarounds. Inputs to other
+# component models (iid, factor_full, ...) are left alone: inlabru maps
+# factor and character values to levels for those.
 .check_bru_factors <- function(formula, data) {
-  rhs_vars <- all.vars(formula[[3L]])
+  rhs_vars <- unique(unlist(lapply(
+    .bru_rhs_terms(formula[[3L]]),
+    .bru_linear_inputs
+  )))
   vars_in_data <- intersect(rhs_vars, names(data))
   bad_vars <- vars_in_data[
     vapply(
@@ -242,12 +244,40 @@ bru_pred_formula <- function(fit) {
       "`bru_reg` because they rebuild formulas without inlabru component ",
       "syntax).\n",
       "  * Convert to integer indicator columns in `data` before fitting.\n",
-      "  * Use inlabru's native interface with a factor component, e.g. ",
-      "`habitat(habitat, model = \"factor_full\")`.",
+      "  * Use a factor component, e.g. ",
+      "`habitat(habitat, model = \"factor_full\")`. Like other non-linear ",
+      "components, it is left out of parsnip's predict().",
       call. = FALSE
     )
   }
   invisible()
+}
+
+# Split a component-syntax RHS on `+` into its terms.
+.bru_rhs_terms <- function(expr) {
+  if (
+    is.call(expr) && identical(expr[[1L]], as.name("+")) && length(expr) == 3L
+  ) {
+    c(.bru_rhs_terms(expr[[2L]]), list(expr[[3L]]))
+  } else {
+    list(expr)
+  }
+}
+
+# Variables feeding a linear component: a bare `x`, or `name(input)` with no
+# model or model = "linear" (inlabru's default).
+.bru_linear_inputs <- function(term) {
+  if (is.name(term)) {
+    return(as.character(term))
+  }
+  if (!is.call(term) || length(term) < 2L) {
+    return(character())
+  }
+  model <- term$model
+  if (!is.null(model) && !identical(model, "linear")) {
+    return(character())
+  }
+  all.vars(term[[2L]])
 }
 
 #' Internal conf_int helper for the parsnip bru_reg engine

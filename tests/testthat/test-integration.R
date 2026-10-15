@@ -1,4 +1,5 @@
 skip_if_not_installed("inlabru")
+skip_if_not_installed("INLA")
 skip_on_cran()
 
 library(inlabru)

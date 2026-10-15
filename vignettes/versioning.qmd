@@ -45,7 +45,8 @@ For this vignette we use a local folder board. In production swap this for
 identical across all backends.
 
 ```{r}
-board <- board_temp()
+# Versioned, so every vetiver_pin_write() keeps the earlier versions.
+board <- board_temp(versioned = TRUE)
 ```
 
 ## 1. Baseline model — version 1
@@ -110,6 +111,7 @@ v1 <- vetiver_model(
   metadata = list(
     pred_formula  = "~ exp(Intercept + habitat_open + effort)",
     n_samples     = 500L,
+    model_year    = 1L,
     training_rows = nrow(train_y1),
     dic           = fit_v1$dic$dic,
     waic          = fit_v1$waic$waic,
@@ -121,10 +123,6 @@ v1 <- vetiver_model(
 vetiver_pin_write(board, v1)
 
 pin_versions(board, "wildlife_counts")
-#> # A tibble: 1 × 3
-#>   version                created             hash
-#>   <chr>                  <dttm>              <chr>
-#> 1 20240115T091234Z-3a2b1 2024-01-15 09:12:34 3a2b1
 ```
 
 ## 2. New data, new version
@@ -172,6 +170,7 @@ v2 <- vetiver_model(
   metadata = list(
     pred_formula  = "~ exp(Intercept + habitat_open + effort)",
     n_samples     = 500L,
+    model_year    = 2L,
     training_rows = nrow(train_y2),
     dic           = fit_v2$dic$dic,
     waic          = fit_v2$waic$waic,
@@ -183,11 +182,6 @@ v2 <- vetiver_model(
 vetiver_pin_write(board, v2)
 
 pin_versions(board, "wildlife_counts")
-#> # A tibble: 2 × 3
-#>   version                created             hash
-#>   <chr>                  <dttm>              <chr>
-#> 1 20250210T143012Z-8f4c2 2025-02-10 14:30:12 8f4c2
-#> 2 20240115T091234Z-3a2b1 2024-01-15 09:12:34 3a2b1
 ```
 
 ## 3. Compare versions before promoting
@@ -196,7 +190,8 @@ Both versions are now on the board. Pull their stored quality metrics without
 loading the model objects — this is cheap even when models are large.
 
 ```{r}
-versions <- pin_versions(board, "wildlife_counts")
+# Newest first. pin_versions() does not promise an order, so sort.
+versions <- pin_versions(board, "wildlife_counts") |> arrange(desc(created))
 
 quality <- map_dfr(versions$version, function(ver) {
   meta <- pin_meta(board, "wildlife_counts", version = ver)
@@ -212,16 +207,42 @@ quality <- map_dfr(versions$version, function(ver) {
 })
 
 quality
-#> # A tibble: 2 × 7
-#>   version                created    training_rows  waic   dic mean_crps mean_logs
-#>   <chr>                  <dttm>             <int> <dbl> <dbl>     <dbl>     <dbl>
-#> 1 20250210T143012Z-8f4c2 2025-02-10           100  834.  831.     0.381     0.921
-#> 2 20240115T091234Z-3a2b1 2024-01-15           100  847.  844.     0.412     0.987
 ```
 
-Version 2 has a lower mean CRPS on the shared validation stations, so its
-posterior predictive distribution is sharper and better calibrated for the
-current population state. Promote it.
+The stored metrics describe each version on the data of its own year, which
+is what longitudinal tracking needs (section 6). They are not a head-to-head
+comparison: v1 was scored on year-1 counts, v2 on year-2 counts. Before
+promoting, score every candidate on the same, newest validation data:
+
+```{r}
+y_formula <- ~ rpois(
+  length(habitat_open),
+  exp(Intercept + habitat_open + effort)
+)
+scores_v1_now <- bru_score(
+  fit_v1,
+  newdata      = val_y2,
+  pred_formula = y_formula,
+  y_col        = "counts",
+  n_samples    = 1000L
+)
+
+# Match scores to versions through the model_year stored in each pin, not
+# through row order: timestamps can tie, and the board may hold more versions.
+crps_now <- c(`1` = mean(scores_v1_now$crps), `2` = mean(scores_v2$crps))
+head_to_head <- tibble(
+  version    = versions$version,
+  model_year = map_int(version, function(ver) {
+    pin_meta(board, "wildlife_counts", version = ver)$user$model_year
+  }),
+  mean_crps  = unname(crps_now[as.character(model_year)])
+)
+head_to_head
+```
+
+The version with the lower mean CRPS on current data has the sharper,
+better calibrated predictive distribution for the current population
+state. Promote it.
 
 ## 4. Promote the better version
 
@@ -231,14 +252,14 @@ to a production board. The staging board and the production board are separate
 prefixes, Connect spaces, etc.).
 
 ```{r}
-prod_board <- board_temp()
+prod_board <- board_temp(versioned = TRUE)
 
 # Load the winning version from the staging board. vetiver_pin_read()
 # returns a fully-formed vetiver_model (description + prototype + metadata
 # intact), so we can re-pin it directly to production. Wrapping it again
 # in vetiver_model() would error — there is no method to create a
 # description from a vetiver_model object.
-best_version <- quality$version[which.min(quality$mean_crps)]
+best_version <- head_to_head$version[which.min(head_to_head$mean_crps)]
 v_winning <- vetiver_pin_read(board, "wildlife_counts",
                                version = best_version)
 
@@ -255,16 +276,17 @@ prediction error on incoming monitoring data, sudden score regression — roll
 back by re-promoting the previous version.
 
 ```{r}
-# Re-read versions in case the board state has changed since section 3.
-# pin_versions() orders by `created` descending — newest first, oldest last.
-versions_now <- pin_versions(board, "wildlife_counts")
+# Re-read versions in case the board state has changed since section 3,
+# newest first.
+versions_now <- pin_versions(board, "wildlife_counts") |>
+  arrange(desc(created))
 stopifnot(
   "Need at least 2 pinned versions to demonstrate rollback" =
     nrow(versions_now) >= 2L
 )
 
-# The previous version is the second row (one below newest).
-previous_version <- versions_now$version[2]
+# Roll back to the newest version other than the one in production.
+previous_version <- setdiff(versions_now$version, best_version)[1]
 
 v_rollback <- vetiver_pin_read(board, "wildlife_counts",
                                 version = previous_version)
@@ -315,10 +337,9 @@ latest pin.
 ```{r}
 library(plumber)
 
-v_prod <- vetiver_model(
-  pin_read(prod_board, "wildlife_counts"),
-  "wildlife_counts"
-)
+# vetiver_pin_read() returns the full vetiver model, including the
+# prototype and the pred_formula in its metadata.
+v_prod <- vetiver_pin_read(prod_board, "wildlife_counts")
 
 pr() |>
   vetiver_api(v_prod) |>
@@ -342,12 +363,7 @@ resp <- request("http://127.0.0.1:8088/predict") |>
   ) |>
   req_perform()
 
-resp_body_json(resp)
-#> # A tibble: 2 × 4
-#>   .pred .pred_low .pred_high .pred_sd
-#>   <dbl>     <dbl>      <dbl>    <dbl>
-#> 1  2.18      1.43       3.29    0.474
-#> 2  3.54      2.41       5.10    0.685
+tibble::as_tibble(resp_body_json(resp, simplifyVector = TRUE))
 ```
 
 ## 8. Real production boards
@@ -405,19 +421,18 @@ A common pattern:
 
 ```{r}
 # At the top of plumber.R
+library(inlaops)  # provides the methods that serve bru fits
+
 prod_board <- if (Sys.getenv("CONNECT_API_KEY") != "") {
   pins::board_connect()
 } else if (Sys.getenv("AWS_ACCESS_KEY_ID") != "") {
   pins::board_s3(bucket = Sys.getenv("MODEL_BUCKET"),
                  prefix = Sys.getenv("MODEL_PREFIX"))
 } else {
-  pins::board_temp(Sys.getenv("MODEL_DIR", "./model-store"))
+  pins::board_folder(Sys.getenv("MODEL_DIR", "./model-store"))
 }
 
-v_prod <- vetiver::vetiver_model(
-  pins::pin_read(prod_board, "wildlife_counts"),
-  "wildlife_counts"
-)
+v_prod <- vetiver::vetiver_pin_read(prod_board, "wildlife_counts")
 ```
 
 This keeps the same plumber.R working for local dev (folder), CI (folder
@@ -440,7 +455,7 @@ older versions age out via `pin_versions_prune()`.
 |---|---|
 | Before pinning | Fit with `config = TRUE`; compute holdout scores with `bru_score()` |
 | When pinning | Store WAIC, DIC, CRPS, log-score, and `training_rows` in `metadata$user` |
-| Before promoting | Compare `mean_crps` on a **fixed** validation set across all candidate versions |
+| Before promoting | Score every candidate version on the **same, newest** validation data |
 | In production | Always read the latest pin; never hard-code a version hash |
 | On regression | Re-promote the previous version from the staging board; investigate offline |
 | For deploy | Construct the production board from environment credentials, not interactive auth |

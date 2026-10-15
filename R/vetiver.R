@@ -66,21 +66,43 @@ NULL
     } else {
       as_tibble(sf::st_drop_geometry(lhood_data))
     }
-    for (nm in colnames(coords)) {
-      ptype[[nm]] <- coords[, nm]
-    }
+    ptype <- .bru_add_coords(ptype, coords)
   } else if (identical(spatial_class, "sp_point")) {
     ptype <- as_tibble(lhood_data@data)
     coords <- sp::coordinates(lhood_data)
-    for (nm in colnames(coords)) {
-      ptype[[nm]] <- coords[, nm]
-    }
+    ptype <- .bru_add_coords(ptype, coords)
   } else {
     ptype <- as_tibble(lhood_data)
   }
   # Requests carry predictors only; the response is what /predict returns.
   response <- if (length(obs$formula) == 3L) all.vars(obs$formula[[2L]])
   ptype[0, setdiff(names(ptype), response), drop = FALSE]
+}
+
+# Append coordinate columns to a prototype. Data often repeats the
+# coordinates under the same names (e.g. sf::st_as_sf(remove = FALSE)), which
+# is harmless. A same-named column with other values (e.g. response `y` with
+# coordinates x / y) would be silently replaced, so refuse that.
+.bru_add_coords <- function(ptype, coords) {
+  clash <- Filter(
+    function(nm) {
+      !isTRUE(all.equal(unname(ptype[[nm]]), unname(coords[, nm])))
+    },
+    intersect(colnames(coords), names(ptype))
+  )
+  if (length(clash)) {
+    stop(
+      "Coordinate column(s) ",
+      paste(shQuote(clash), collapse = ", "),
+      " clash with data columns of the same name but different values. ",
+      "Rename the data columns before fitting so requests can carry both.",
+      call. = FALSE
+    )
+  }
+  for (nm in colnames(coords)) {
+    ptype[[nm]] <- coords[, nm]
+  }
+  ptype
 }
 
 .vetiver_prepare_model_bru <- function(model) {

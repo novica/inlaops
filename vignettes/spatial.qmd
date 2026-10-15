@@ -109,7 +109,8 @@ obs_df <- data.frame(
 obs_df$value <- 1 + 0.3 * obs_df$x + rnorm(n_obs, sd = 0.5)
 obs_sp <- sp::SpatialPointsDataFrame(
   coords      = obs_df[, c("x", "y")],
-  data        = data.frame(y = obs_df$value),
+  # Not `y`: that name is taken by a coordinate, and requests carry both.
+  data        = data.frame(value = obs_df$value),
   proj4string = sp::CRS(SRS_string = "EPSG:32632")
 )
 
@@ -127,7 +128,7 @@ spde  <- inla.spde2.pcmatern(mesh, prior.range = c(3, 0.5),
 cmp <- ~ field(coordinates, model = spde) + Intercept(1)
 fit <- bru(
   cmp,
-  bru_obs(formula = y ~ ., family = "gaussian", data = obs_sp),
+  bru_obs(formula = value ~ ., family = "gaussian", data = obs_sp),
   options = bru_options(control.compute = list(config = TRUE))
 )
 
@@ -162,24 +163,10 @@ the hyperparameters include SPDE range and marginal variance:
 
 ```{r}
 tidy(fit, effects = "fixed")
-#> # A tibble: 1 × 5
-#>   term      estimate std.error conf.low conf.high
-#>   <chr>        <dbl>     <dbl>    <dbl>     <dbl>
-#> 1 Intercept    1.84      0.312     1.23      2.45
 
 tidy(fit, effects = "hyperpar")
-#> # A tibble: 3 × 5
-#>   term                           estimate std.error conf.low conf.high
-#>   <chr>                             <dbl>     <dbl>    <dbl>     <dbl>
-#> 1 Range for field                    4.21      0.82     2.88      6.02
-#> 2 Stdev for field                    1.03      0.18     0.72      1.43
-#> 3 Precision for the obs. noise       4.08      0.41     3.31      4.90
 
 glance(fit)
-#> # A tibble: 1 × 5
-#>     dic  waic marginal_loglik  nobs elapsed
-#>   <dbl> <dbl>           <dbl> <int>   <dbl>
-#> 1 1123.  1127.           -563.   200    3.41
 ```
 
 `augment()` adds fitted values to the training locations. The user must
@@ -248,8 +235,9 @@ glance(fit)
 holdout_scores <- bru_score(
   fit,
   newdata      = holdout_sp,
-  pred_formula = ~ exp(Intercept + field),
-  y_col        = "y",
+  # Samples of Y, here for a count model; see vignette("scoring").
+  pred_formula = ~ rpois(length(field), exp(Intercept + field)),
+  y_col        = "counts",
   n_samples    = 1000L
 )
 summary(holdout_scores)
@@ -265,7 +253,7 @@ v <- vetiver_model(
     crs          = 32632
   )
 )
-vetiver_pin_write(board_temp("./model-store"), v)
+vetiver_pin_write(board_folder("./model-store"), v)
 ```
 
 ## Request body contract

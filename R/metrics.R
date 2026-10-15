@@ -42,9 +42,11 @@
 #'   draws of `Y` on the outcome scale; see Details.
 #' @param y_col Name of the response column in `newdata`.
 #' @param n_samples Number of posterior samples (default 1000).
-#' @param seed Optional integer. If non-`NULL`, the session RNG is reset to
-#'   this value for the duration of the call via save/restore, so the
-#'   caller's RNG stream is not disturbed.
+#' @param seed Optional non-zero integer. If non-`NULL`, the scores are
+#'   reproducible:
+#'   the seed is used for R's RNG (the `r*()` draws in `pred_formula`) and
+#'   for INLA's posterior sampler, which then runs single-threaded. The
+#'   caller's RNG stream is restored afterwards.
 #' @return A tibble with one row per observation and columns `crps`, `logs`,
 #'   `se`, `ds`.
 #' @export
@@ -59,14 +61,31 @@ bru_score <- function(
   if (!requireNamespace("scoringRules", quietly = TRUE)) {
     stop("Package 'scoringRules' is required for bru_score().")
   }
+  # Checked before sampling, which is the expensive part.
+  if (
+    !is.character(y_col) || length(y_col) != 1L || !y_col %in% names(newdata)
+  ) {
+    stop("`y_col` must name a single column of `newdata`.", call. = FALSE)
+  }
+  if (
+    is.numeric(seed) && length(seed) == 1L && isTRUE(as.integer(seed) == 0L)
+  ) {
+    stop(
+      "`seed` must be non-zero: INLA treats 0 as \"pick a random seed\".",
+      call. = FALSE
+    )
+  }
 
+  # Both seeds are needed: set.seed() covers R's RNG, `seed` covers INLA's
+  # posterior sampler (0 lets INLA pick its own).
   samples <- .with_seed(
     seed,
     inlabru::generate(
       fit,
       newdata = newdata,
       formula = pred_formula,
-      n.samples = n_samples
+      n.samples = n_samples,
+      seed = if (is.null(seed)) 0L else as.integer(seed)
     )
   )
 
