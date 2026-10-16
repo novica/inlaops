@@ -1,4 +1,4 @@
-# inlaops
+# inlaops <img src="man/figures/logo.svg" align="right" height="139" alt="" />
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml/badge.svg?branch=main)](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml)
