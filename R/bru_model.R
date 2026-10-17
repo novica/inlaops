@@ -21,6 +21,8 @@
 #' @param mode Model mode. Currently only `"regression"` is supported.
 #' @param family INLA family string, e.g. `"gaussian"`, `"poisson"`.
 #' @return A `bru_reg` model spec.
+#' @examplesIf rlang::is_installed("parsnip")
+#' bru_reg(family = "poisson")
 #' @export
 bru_reg <- function(mode = "regression", family = "gaussian") {
   args <- list(family = rlang::enquo(family))
@@ -44,6 +46,22 @@ bru_reg <- function(mode = "regression", family = "gaussian") {
 # posterior sampling, so even a user-supplied `options` gets config = TRUE
 # merged in.
 #' Internal fit wrapper for the parsnip inlabru engine
+#' @param formula Model formula in inlabru component syntax, with an explicit
+#'   `Intercept(1)`.
+#' @param data Training data frame.
+#' @param dic,waic Compute DIC / WAIC. Ignored when `options` already sets
+#'   them.
+#' @param options Optional [inlabru::bru_options()]. `config = TRUE` is always
+#'   merged into its `control.compute`.
+#' @param ... Passed to [inlabru::bru()].
+#' @return A fitted `bru` object (see [inlabru::bru()]) with stored posterior
+#'   configurations, so it can be sampled with `inlabru::generate()`.
+#' @examplesIf rlang::is_installed("INLA")
+#' set.seed(1)
+#' dat <- data.frame(x = rnorm(30))
+#' dat$y <- 1 + 0.5 * dat$x + rnorm(30, sd = 0.5)
+#' fit <- bru_inlaops_fit(y ~ Intercept(1) + x, data = dat, family = "gaussian")
+#' fit$summary.fixed
 #' @keywords internal
 #' @export
 bru_inlaops_fit <- function(
@@ -160,6 +178,12 @@ bru_inlaops_fit <- function(
 #'
 #' @param fit A fitted `bru` object.
 #' @return A one-sided formula.
+#' @examplesIf rlang::is_installed("INLA")
+#' set.seed(1)
+#' dat <- data.frame(x = rnorm(30))
+#' dat$y <- rpois(30, exp(0.5 + 0.3 * dat$x))
+#' fit <- bru_inlaops_fit(y ~ Intercept(1) + x, data = dat, family = "poisson")
+#' bru_pred_formula(fit)
 #' @keywords internal
 #' @export
 bru_pred_formula <- function(fit) {
@@ -294,6 +318,18 @@ bru_pred_formula <- function(fit) {
 #' @param formula Response-scale prediction formula.
 #' @param n.samples Number of posterior samples (default 1000).
 #' @return A list with `q_lower` and `q_upper` numeric vectors.
+#' @examplesIf rlang::is_installed(c("INLA", "sn"))
+#' set.seed(1)
+#' dat <- data.frame(x = rnorm(30))
+#' dat$y <- 1 + 0.5 * dat$x + rnorm(30, sd = 0.5)
+#' fit <- bru_inlaops_fit(y ~ Intercept(1) + x, data = dat, family = "gaussian")
+#' bru_predict_conf_int(
+#'   fit,
+#'   newdata = data.frame(x = c(-1, 0, 1)),
+#'   level = 0.9,
+#'   formula = bru_pred_formula(fit),
+#'   n.samples = 200
+#' )
 #' @keywords internal
 #' @export
 bru_predict_conf_int <- function(

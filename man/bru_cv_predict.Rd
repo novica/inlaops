@@ -70,3 +70,21 @@ their own parallel backend (e.g. \code{future.apply::future_lapply}) around a
 per-fold \code{inlabru::bru()} call — this package stays out of the daemon
 lifecycle to keep the scope focused on bridging, not execution.
 }
+\examples{
+\dontshow{if (rlang::is_installed(c("INLA", "rsample", "sn"))) withAutoprint(\{ # examplesIf}
+\donttest{
+set.seed(1)
+dat <- data.frame(x = rnorm(60))
+dat$y <- 1 + 0.5 * dat$x + rnorm(60, sd = 0.5)
+bru_cv_predict(
+  formula = y ~ Intercept(1) + x,
+  family = "gaussian",
+  data = dat,
+  v = 3,
+  pred_formula = ~ Intercept + x,
+  n_samples = 100,
+  seed = 42
+)
+}
+\dontshow{\}) # examplesIf}
+}

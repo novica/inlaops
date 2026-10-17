@@ -65,3 +65,28 @@ approximate in that case.
 Dawid-Sebastiani variance is floored at \code{.Machine$double.eps} to avoid
 division by zero when the sample variance collapses.
 }
+\examples{
+\dontshow{if (rlang::is_installed(c("INLA", "scoringRules", "sn"))) withAutoprint(\{ # examplesIf}
+set.seed(1)
+dat <- data.frame(x = rnorm(40))
+dat$y <- rpois(40, exp(0.5 + 0.3 * dat$x))
+fit <- bru_inlaops_fit(
+  y ~ Intercept(1) + x,
+  data = dat[1:30, ],
+  family = "poisson"
+)
+bru_score(
+  fit,
+  newdata = dat[31:40, ],
+  pred_formula = ~ rpois(length(x), exp(Intercept + x)),
+  y_col = "y",
+  n_samples = 200,
+  seed = 1
+)
+\dontshow{\}) # examplesIf}
+}
+\references{
+Gneiting, T. and Raftery, A. E. (2007). Strictly proper scoring
+rules, prediction, and estimation. \emph{Journal of the American Statistical
+Association}, 102(477), 359--378. \doi{10.1198/016214506000001437}
+}
