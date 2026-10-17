@@ -6,7 +6,34 @@
 \usage{
 bru_inlaops_fit(formula, data, dic = TRUE, waic = TRUE, options = NULL, ...)
 }
+\arguments{
+\item{formula}{Model formula in inlabru component syntax, with an explicit
+\code{Intercept(1)}.}
+
+\item{data}{Training data frame.}
+
+\item{dic, waic}{Compute DIC / WAIC. Ignored when \code{options} already sets
+them.}
+
+\item{options}{Optional \code{\link[inlabru:bru_options]{inlabru::bru_options()}}. \code{config = TRUE} is always
+merged into its \code{control.compute}.}
+
+\item{...}{Passed to \code{\link[inlabru:bru]{inlabru::bru()}}.}
+}
+\value{
+A fitted \code{bru} object (see \code{\link[inlabru:bru]{inlabru::bru()}}) with stored posterior
+configurations, so it can be sampled with \code{inlabru::generate()}.
+}
 \description{
 Internal fit wrapper for the parsnip inlabru engine
+}
+\examples{
+\dontshow{if (rlang::is_installed("INLA")) withAutoprint(\{ # examplesIf}
+set.seed(1)
+dat <- data.frame(x = rnorm(30))
+dat$y <- 1 + 0.5 * dat$x + rnorm(30, sd = 0.5)
+fit <- bru_inlaops_fit(y ~ Intercept(1) + x, data = dat, family = "gaussian")
+fit$summary.fixed
+\dontshow{\}) # examplesIf}
 }
 \keyword{internal}

@@ -27,4 +27,13 @@ Errors if the fit specified a non-default link (via
 inverse link in the package's mapping. In either case, use
 \code{inlabru::predict()} directly.
 }
+\examples{
+\dontshow{if (rlang::is_installed("INLA")) withAutoprint(\{ # examplesIf}
+set.seed(1)
+dat <- data.frame(x = rnorm(30))
+dat$y <- rpois(30, exp(0.5 + 0.3 * dat$x))
+fit <- bru_inlaops_fit(y ~ Intercept(1) + x, data = dat, family = "poisson")
+bru_pred_formula(fit)
+\dontshow{\}) # examplesIf}
+}
 \keyword{internal}

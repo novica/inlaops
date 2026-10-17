@@ -40,6 +40,21 @@
 #'   unconditionally so per-fold posterior sampling always works.
 #' @return A tibble with columns `.truth`, `.pred`, `.pred_low`,
 #'   `.pred_high`, `.pred_sd`.
+#' @examplesIf rlang::is_installed(c("INLA", "rsample", "sn"))
+#' \donttest{
+#' set.seed(1)
+#' dat <- data.frame(x = rnorm(60))
+#' dat$y <- 1 + 0.5 * dat$x + rnorm(60, sd = 0.5)
+#' bru_cv_predict(
+#'   formula = y ~ Intercept(1) + x,
+#'   family = "gaussian",
+#'   data = dat,
+#'   v = 3,
+#'   pred_formula = ~ Intercept + x,
+#'   n_samples = 100,
+#'   seed = 42
+#' )
+#' }
 #' @export
 bru_cv_predict <- function(
   formula,
