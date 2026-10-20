@@ -27,7 +27,7 @@ Connect installs the same versions from the same sources. A package installed
 from a local checkout has no source Connect can use, so install inlaops from
 GitHub:
 
-```{r}
+```r
 pak::pak("novica/inlaops")
 ```
 
@@ -107,7 +107,7 @@ packages inside `if (FALSE)`, which records them without loading them.
 From RStudio, publish the folder with the blue publish button and choose
 "API", or from the console:
 
-```{r}
+```r
 rsconnect::deployAPI("path/to/api-folder")
 ```
 
@@ -120,7 +120,7 @@ Open the content URL: vetiver's docs page lets you try `/predict` in the
 browser, for example with `[{"x1": 0.5, "x2": 1.0}]`. From R, use vetiver's
 client with an API key (not needed if the content's access is "Anyone"):
 
-```{r}
+```r
 endpoint <- vetiver_endpoint(
   "https://connect.example.com/content/<guid>/predict"
 )

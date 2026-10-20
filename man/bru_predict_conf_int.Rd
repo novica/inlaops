@@ -28,7 +28,7 @@ only so \code{parsnip::set_pred}'s quoted \code{func} can reach it via the
 \code{pkg = "inlaops"} lookup; not intended for end users.
 }
 \examples{
-\dontshow{if (rlang::is_installed(c("INLA", "sn"))) withAutoprint(\{ # examplesIf}
+\dontshow{if (interactive() && rlang::is_installed(c("INLA", "sn"))) withAutoprint(\{ # examplesIf}
 set.seed(1)
 dat <- data.frame(x = rnorm(30))
 dat$y <- 1 + 0.5 * dat$x + rnorm(30, sd = 0.5)
