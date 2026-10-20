@@ -49,6 +49,26 @@
 #'   caller's RNG stream is restored afterwards.
 #' @return A tibble with one row per observation and columns `crps`, `logs`,
 #'   `se`, `ds`.
+#' @references Gneiting, T. and Raftery, A. E. (2007). Strictly proper scoring
+#'   rules, prediction, and estimation. *Journal of the American Statistical
+#'   Association*, 102(477), 359--378. \doi{10.1198/016214506000001437}
+#' @examplesIf rlang::is_installed(c("INLA", "scoringRules", "sn"))
+#' set.seed(1)
+#' dat <- data.frame(x = rnorm(40))
+#' dat$y <- rpois(40, exp(0.5 + 0.3 * dat$x))
+#' fit <- bru_inlaops_fit(
+#'   y ~ Intercept(1) + x,
+#'   data = dat[1:30, ],
+#'   family = "poisson"
+#' )
+#' bru_score(
+#'   fit,
+#'   newdata = dat[31:40, ],
+#'   pred_formula = ~ rpois(length(x), exp(Intercept + x)),
+#'   y_col = "y",
+#'   n_samples = 200,
+#'   seed = 1
+#' )
 #' @export
 bru_score <- function(
   fit,

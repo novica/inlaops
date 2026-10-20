@@ -34,3 +34,8 @@ the random effect for held-out observations from a seen group. If you
 need conditional predictions, call \code{inlabru::predict()} directly with a
 formula that references the IID component.
 }
+\examples{
+\dontshow{if (rlang::is_installed("parsnip")) withAutoprint(\{ # examplesIf}
+bru_reg(family = "poisson")
+\dontshow{\}) # examplesIf}
+}

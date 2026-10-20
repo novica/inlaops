@@ -2,14 +2,17 @@ Package: inlaops
 Title: Deployment, Versioning and Scoring Tools for 'inlabru' Models
 Version: 0.1.1
 Authors@R: c(
-    person("Novica", "Nakov", , "nnovica@gmail.com", role = c("aut", "cre"),
+    person("Novica", "Nakov", , "nnovica@gmail.com", role = c("aut", "cre", "cph"),
            comment = c(ORCID = "0009-0005-7773-7718"))
   )
 Description: Serves Bayesian spatial and latent Gaussian models fit with
-    inlabru as versioned REST APIs. Includes a vetiver bridge (versioning,
-    REST API serving with posterior uncertainty, Docker packaging) for 'bru'
-    objects, a parsnip model constructor scoped to fixed-effects models, and
-    proper scoring rule helpers via inlabru::generate().
+    'inlabru' as versioned Representational State Transfer (REST)
+    application programming interfaces (APIs). Includes a 'vetiver' bridge
+    (versioning, REST API serving with posterior uncertainty, 'Docker'
+    packaging) for 'bru' objects, a 'parsnip' model constructor scoped to
+    fixed-effects models, and proper scoring rule helpers via
+    inlabru::generate(), following Gneiting and Raftery (2007)
+    <doi:10.1198/016214506000001437>.
 License: GPL (>= 3)
 URL: https://github.com/novica/inlaops, https://novica.github.io/inlaops/
 BugReports: https://github.com/novica/inlaops/issues

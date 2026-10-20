@@ -85,6 +85,10 @@ install.packages("INLA",
   repos = c(getOption("repos"), INLA = "https://inla.r-inla-download.org/R/stable")
 )
 
+# Once on CRAN
+install.packages("inlaops")
+
+# Development version
 # install.packages("pak")
 pak::pak("novica/inlaops")
 ```
