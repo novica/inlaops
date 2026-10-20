@@ -1,3 +1,9 @@
+# inlaops 0.1.2
+
+## Documentation
+
+* meet CRAN extra checks ([#24](https://github.com/novica/inlaops/issues/24)) ([f431112](https://github.com/novica/inlaops/commit/f4311125e49cfbbaa5ca02c06607dd0124e63e2e))
+
 # inlaops 0.1.1
 
 ## Documentation
