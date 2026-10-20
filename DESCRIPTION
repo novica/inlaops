@@ -10,9 +10,10 @@ Description: Serves Bayesian spatial and latent Gaussian models fit with
     application programming interfaces (APIs). Includes a 'vetiver' bridge
     (versioning, REST API serving with posterior uncertainty, 'Docker'
     packaging) for 'bru' objects, a 'parsnip' model constructor scoped to
-    fixed-effects models, and proper scoring rule helpers via
-    inlabru::generate(), following Gneiting and Raftery (2007)
-    <doi:10.1198/016214506000001437>.
+    fixed-effects models, and predictive scoring helpers (continuous
+    ranked probability, log, squared-error and Dawid-Sebastiani scores)
+    computed from inlabru::generate() posterior samples via
+    'scoringRules'.
 License: GPL (>= 3)
 URL: https://github.com/novica/inlaops, https://novica.github.io/inlaops/
 BugReports: https://github.com/novica/inlaops/issues
