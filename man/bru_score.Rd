@@ -66,7 +66,7 @@ Dawid-Sebastiani variance is floored at \code{.Machine$double.eps} to avoid
 division by zero when the sample variance collapses.
 }
 \examples{
-\dontshow{if (rlang::is_installed(c("INLA", "scoringRules", "sn"))) withAutoprint(\{ # examplesIf}
+\dontshow{if (interactive() && rlang::is_installed(c("INLA", "scoringRules", "sn"))) withAutoprint(\{ # examplesIf}
 set.seed(1)
 dat <- data.frame(x = rnorm(40))
 dat$y <- rpois(40, exp(0.5 + 0.3 * dat$x))

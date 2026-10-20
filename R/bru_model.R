@@ -318,7 +318,7 @@ bru_pred_formula <- function(fit) {
 #' @param formula Response-scale prediction formula.
 #' @param n.samples Number of posterior samples (default 1000).
 #' @return A list with `q_lower` and `q_upper` numeric vectors.
-#' @examplesIf rlang::is_installed(c("INLA", "sn"))
+#' @examplesIf interactive() && rlang::is_installed(c("INLA", "sn"))
 #' set.seed(1)
 #' dat <- data.frame(x = rnorm(30))
 #' dat$y <- 1 + 0.5 * dat$x + rnorm(30, sd = 0.5)
