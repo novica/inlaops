@@ -1,3 +1,10 @@
+## [0.1.2](https://github.com/novica/inlaops/compare/v0.1.1...v0.1.2) (2026-10-20)
+
+
+### Documentation
+
+* meet CRAN extra checks ([#24](https://github.com/novica/inlaops/issues/24)) ([f431112](https://github.com/novica/inlaops/commit/f4311125e49cfbbaa5ca02c06607dd0124e63e2e))
+
 ## [0.1.1](https://github.com/novica/inlaops/compare/v0.1.0...v0.1.1) (2026-10-15)
 
 
