@@ -33,6 +33,21 @@ consuming side runs R. When the model is refitted on a new survey, the new
 version is pinned and served, and the old versions stay available for
 comparison and rollback.
 
+## Installation
+
+You can install the released version of `inlaops` from CRAN with:
+
+``` r
+install.packages("inlaops")
+```
+
+You can install the development version of `inlaops` from GitHub with:
+
+``` r
+# install.packages("pak")
+pak::pak("novica/inlaops")
+```
+
 ## Example
 
 ```r
