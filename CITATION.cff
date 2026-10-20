@@ -14,7 +14,7 @@ authors:
     email: nnovica@gmail.com
     orcid: "https://orcid.org/0009-0005-7773-7718"
 version: 0.1.2 # x-release-please-version
-date-released: 2026-10-15
+date-released: 2026-10-20
 license: GPL (>= 3)
 url: "https://novica.github.io/inlaops/"
 repository-code: "https://github.com/novica/inlaops"
