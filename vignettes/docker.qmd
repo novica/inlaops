@@ -90,7 +90,7 @@ Notes:
   reproducible. inlaops needs inlabru (>= 2.15.0), so use an image whose
   snapshot is at least that recent.
 - Check the INLA repository URL at
-  <https://www.r-inla.org/download-install> before deploying to a new
+  <https://www.r-inla.org/download/index.html> before deploying to a new
   environment.
 - For a remote board (S3, Posit Connect, ...), drop the `COPY model-store`
   line and pass credentials as environment variables at `docker run` time
