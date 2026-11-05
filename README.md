@@ -2,8 +2,11 @@
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml/badge.svg?branch=main)](https://github.com/novica/inlaops/actions/workflows/R-CMD-check.yml)
-[![Codecov test coverage](https://codecov.io/gh/novica/inlaops/graph/badge.svg)](https://app.codecov.io/gh/novica/inlaops)
-[![pkgdown](https://github.com/novica/inlaops/actions/workflows/pkgdown.yml/badge.svg?branch=main)](https://github.com/novica/inlaops/actions/workflows/pkgdown.yml)
+[![CRAN\_Status\_Badge](https://www.r-pkg.org/badges/version/inlaops)](https://CRAN.R-project.org/package=inlaops)
+[![CRAN\_Downloads](https://cranlogs.r-pkg.org/badges/grand-total/inlaops)](https://CRAN.R-project.org/package=inlaops)
+[![DOI](https://img.shields.io/badge/DOI-10.32614%2FCRAN.package.inlaops-blue)](https://doi.org/10.32614/CRAN.package.inlaops)
+[![Coverage Status](https://codecov.io/gh/novica/inlaops/branch/main/graph/badge.svg)](https://app.codecov.io/gh/novica/inlaops/branch/main)
+[![inlaops status badge](https://novica.r-universe.dev/inlaops/badges/version)](https://novica.r-universe.dev/inlaops)
 <!-- badges: end -->
 
 Serve [inlabru](https://inlabru-org.github.io/inlabru/) models as versioned
