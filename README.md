@@ -95,22 +95,6 @@ inlaops also includes `bru_reg()`, a parsnip engine for fixed-effects
 inlabru models, and `bru_score()` for proper scoring rules (CRPS,
 log-score) on held-out data.
 
-## Installation
-
-```r
-# INLA is not on CRAN
-install.packages("INLA",
-  repos = c(getOption("repos"), INLA = "https://inla.r-inla-download.org/R/stable")
-)
-
-# Once on CRAN
-install.packages("inlaops")
-
-# Development version
-# install.packages("pak")
-pak::pak("novica/inlaops")
-```
-
 <div class="pkgdown-hide">
 
 <!-- Hidden on the pkgdown site, which has the articles in its navbar. -->
