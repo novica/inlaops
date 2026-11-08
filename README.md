@@ -38,18 +38,22 @@ comparison and rollback.
 
 ## Installation
 
-You can install the released version of `inlaops` from CRAN with:
+### From CRAN
 
 ``` r
 install.packages("inlaops")
 ```
 
-You can install the development version of `inlaops` from GitHub with:
+### From GitHub
 
 ``` r
 # install.packages("pak")
 pak::pak("novica/inlaops")
 ```
+
+### From R-Universe
+
+install.packages('inlaops', repos = c('https://novica.r-universe.dev'))
 
 ## Example
 
