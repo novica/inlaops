@@ -53,7 +53,9 @@ pak::pak("novica/inlaops")
 
 ### From R-Universe
 
+``` r
 install.packages('inlaops', repos = c('https://novica.r-universe.dev'))
+```
 
 ## Example
 
